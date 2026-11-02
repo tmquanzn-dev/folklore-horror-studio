@@ -6,6 +6,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import PQueue from 'p-queue'
 import { buildCompositionProps } from '../../shared/composition'
+import { renderFingerprint } from '../render/fingerprint'
 import { platformsConfig, providersConfig } from '../../shared/config'
 import { checkBudget, formatUsdShort, storySpent } from '../../shared/logic/costEstimate'
 import { selectHeroScenes } from '../../shared/logic/hero'
@@ -17,7 +18,7 @@ import { computeLineTimings } from '../../shared/logic/timeline'
 import { charactersForStory, isChannelCharacter } from '../../shared/logic/voices'
 import { buildMediaUrl, toRelPath } from '../../shared/media'
 import type { StepKey } from '../../shared/pipeline'
-import type { ChannelPreset, MediaRef } from '../../shared/types'
+import type { ChannelPreset, MediaRef, Release } from '../../shared/types'
 import { buildVerticalFrame } from '../media/verticalFrame'
 import { placeClips, readWav, sameFormat, wavDuration, writeWav, type WavData } from '../media/wav'
 import { toWav44kMono } from '../media/ffmpeg'
@@ -100,10 +101,40 @@ const pronunciation: StepHandler = async (ctx) => {
 
 // ---------------------------------------------------------------- Bước 11
 
+/** Bước 11 với nguồn giọng tự thu: chép lời (báo giá + kiểm ngân sách) rồi căn mốc từng câu */
+async function recordedVoice(ctx: StepContext): Promise<StepResult> {
+  const { story, release, library } = ctx
+  const rec = release.recording
+  if (!rec) throw new Error('Nguồn giọng là "Tự thu" nhưng chưa nhập file. Cách xử lý: Voice Studio → "Nhập file tự thu", hoặc đổi nguồn giọng về TTS.')
+  const estimate = ctx.deps.recording.estimate(release)
+  if (estimate > 0) {
+    const bundle = await ctx.deps.repo.loadBundle(story.id)
+    const others = bundle.releases.filter((r) => r.id !== release.id).map((r) => r.costs)
+    const b = checkBudget(storySpent(story.costs, [...others, release.costs]), estimate, story.budget.limitUsd)
+    if (!b.ok) throw new Error(`Vượt ngân sách Story: chép lời ước tính ${formatUsdShort(estimate)}. Cách xử lý: tăng ngân sách hoặc bật Chế độ Mock.`)
+    release.costs.estimated += estimate
+    ctx.log(`Chép lời ${Math.round(rec.duration)}s bằng Whisper ≈ ${formatUsdShort(estimate)}`)
+  }
+  ctx.progress(0.1, 'Chép lời & căn mốc')
+  const r = await ctx.deps.recording.transcribeAndAlignInto(story, release, library, ctx.signal)
+  if (!release.recording?.transcript?.words.length) {
+    throw new Error('Không nghe được lời nào trong file tự thu. Cách xử lý: kiểm tra file có tiếng nói và đúng ngôn ngữ của bản phát hành.')
+  }
+  if (r.coverage < 0.3) {
+    throw new Error(
+      `File tự thu chỉ khớp ${Math.round(r.coverage * 100)}% từ với kịch bản – có thể nhầm file hoặc kịch bản đã đổi nhiều. Cách xử lý: nhập đúng file, hoặc đọc lại theo kịch bản hiện tại.`
+    )
+  }
+  if (r.lowLines > 0) ctx.log(`${r.lowLines} câu khớp kém (< 60%) – nghe lại ở Voice Studio (đọc sai/bỏ câu?)`, 'warn')
+  if (r.coverage < 0.7) ctx.log(`Chỉ khớp ${Math.round(r.coverage * 100)}% từ kịch bản – file tự thu có đúng kịch bản này không?`, 'warn')
+  return { status: 'done', message: `Tự thu: căn mốc ${release.script.lines.length} câu, khớp ${Math.round(r.coverage * 100)}% từ${r.extraWords ? `, ${r.extraWords} từ đọc thừa` : ''}` }
+}
+
 const tts: StepHandler = async (ctx) => {
   const { story, release, library } = ctx
   const lines = release.script.lines
   if (lines.length === 0) throw new Error('Kịch bản trống – chạy lại bước 8')
+  if (release.voiceSource === 'recorded') return recordedVoice(ctx)
   const providers = ctx.deps.providers
 
   // Ước tính chi phí các câu CHƯA có take (cache) ⇒ chặn nếu vượt ngân sách Story
@@ -174,9 +205,29 @@ async function readTargetWav(ctx: StepContext, abs: string, cacheName: string): 
   return wav
 }
 
+/** Chapters YouTube = đầu mỗi section */
+function computeChapters(release: Release): void {
+  if (release.platform !== 'youtube') return
+  const lines = release.script.lines
+  release.chapters = release.script.sections
+    .map((sec) => {
+      const first = lines.find((l) => l.sectionId === sec.id)
+      return first ? { id: `ch-${sec.id}`, title: sec.title, titleVi: sec.titleVi, start: first.start ?? 0 } : null
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null)
+    .map((c, i) => (i === 0 ? { ...c, start: 0 } : c))
+}
+
 const assembleVoice: StepHandler = async (ctx) => {
   const { story, release, library } = ctx
   const lines = release.script.lines
+  if (release.voiceSource === 'recorded') {
+    ctx.progress(0.2, 'Xử lý giọng tự thu')
+    await ctx.deps.recording.buildRecordedTrackInto(story, release, library, ctx.signal)
+    computeChapters(release)
+    const d = release.voiceTrack?.duration ?? 0
+    return { status: 'done', message: `Voice track tự thu ${Math.floor(d / 60)}:${String(Math.round(d % 60)).padStart(2, '0')} (${lines.length} câu)` }
+  }
   const wavs: WavData[] = []
   for (let i = 0; i < lines.length; i++) {
     throwIfAborted(ctx.signal)
@@ -203,6 +254,9 @@ const assembleVoice: StepHandler = async (ctx) => {
   timing.items.forEach((t, i) => {
     lines[i].start = t.start
     lines[i].end = t.end
+    // Mốc từ thật chỉ có với giọng tự thu – TTS dùng mốc ước lượng
+    lines[i].wordTimings = null
+    lines[i].alignConfidence = null
   })
   const pcm = placeClips(
     TARGET_WAV,
@@ -216,15 +270,7 @@ const assembleVoice: StepHandler = async (ctx) => {
   // GĐ4: mix ambience/SFX/nhạc + ducking + loudness; hiện dùng thẳng giọng đã xử lý
   release.voiceTrack = { mode: 'tts', processedPath: rel, mixedPath: rel, duration: timing.totalDuration }
 
-  if (release.platform === 'youtube') {
-    release.chapters = release.script.sections
-      .map((sec) => {
-        const first = lines.find((l) => l.sectionId === sec.id)
-        return first ? { id: `ch-${sec.id}`, title: sec.title, titleVi: sec.titleVi, start: first.start ?? 0 } : null
-      })
-      .filter((c): c is NonNullable<typeof c> => c !== null)
-      .map((c, i) => (i === 0 ? { ...c, start: 0 } : c))
-  }
+  computeChapters(release)
   const m = Math.floor(timing.totalDuration / 60)
   const s = Math.round(timing.totalDuration % 60)
   return { status: 'done', message: `Voice track ${m}:${String(s).padStart(2, '0')} (${lines.length} câu)` }
@@ -453,7 +499,7 @@ const subtitles: StepHandler = async (ctx) => {
   const style = channel.subtitleStyleByPlatform[ctx.release.platform]
   const glossary = ctx.library.pronunciations.filter((p) => p.language === ctx.release.language)
   ctx.release.subtitles = buildSubtitles(
-    ctx.release.script.lines.map((l) => ({ id: l.id, text: l.text, start: l.start ?? 0, end: l.end ?? 0 })),
+    ctx.release.script.lines.map((l) => ({ id: l.id, text: l.text, start: l.start ?? 0, end: l.end ?? 0, words: l.wordTimings ?? undefined })),
     glossary,
     style
   )
@@ -493,6 +539,12 @@ const render: StepHandler = async (ctx) => {
     ctx.signal
   )
 
+  ctx.release.lastRender = {
+    path: toRelPath('releases', ctx.release.id, 'exports', fileName),
+    fingerprint: renderFingerprint(ctx.story, ctx.release, ctx.library),
+    renderedAt: new Date().toISOString()
+  }
+
   // sources.json – minh bạch nguồn gốc media, giọng, giấy phép, nhãn AI
   const usedBank = new Set(ctx.release.scenes.map((s) => s.sceneBankId))
   const voiceMap = new Map(ctx.release.script.lines.map((l) => {
@@ -504,7 +556,9 @@ const render: StepHandler = async (ctx) => {
     release: { id: ctx.release.id, platform: ctx.release.platform, language: ctx.release.language, part: `${ctx.release.partIndex}/${ctx.release.partCount}` },
     output: toRelPath('exports', fileName),
     aiGenerated: { images: true, voice: true, video: ctx.release.scenes.some((s) => s.motion.level === 'aiVideo'), script: ctx.deps.providers.llm().id !== 'mock' },
-    note: 'Ảnh placeholder (GĐ1–2) – thay bằng ảnh thật ở GĐ3 trước khi đăng.',
+    note: ctx.story.sceneBank.some((b) => usedBank.has(b.id) && b.media[ctx.release.aspectRatio]?.provider === 'mock')
+      ? 'Có ảnh placeholder (Mock) – tạo ảnh thật trước khi đăng.'
+      : null,
     media: ctx.story.sceneBank
       .filter((b) => usedBank.has(b.id))
       .flatMap((b) => (['16:9', '9:16'] as const).map((a) => ({ sceneId: b.id, aspect: a, ref: b.media[a] })))

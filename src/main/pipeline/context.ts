@@ -7,6 +7,7 @@ import type { ImageService } from '../services/imageService'
 import type { MotionService } from '../services/motionService'
 import type { SoundService } from '../services/soundService'
 import type { PublishService } from '../services/publishService'
+import type { RecordingService } from '../services/recordingService'
 import type { RunMode } from '../../shared/types'
 import type { VideoRenderer } from '../render/protocol'
 import type { StoryRepository } from '../storage/storyRepo'
@@ -23,6 +24,8 @@ export interface PipelineDeps {
   sound: SoundService
   /** Gói xuất bản, thumbnail, Shorts teaser */
   publish: PublishService
+  /** Giọng tự thu + chép lời / căn mốc */
+  recording: RecordingService
   renderer: VideoRenderer
   /** Đường dẫn tuyệt đối tới src/remotion/index.ts */
   remotionEntry: string

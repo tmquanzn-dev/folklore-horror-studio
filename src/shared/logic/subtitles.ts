@@ -1,6 +1,6 @@
 /**
  * Dựng phụ đề từ câu đã có mốc thời gian.
- * - Mốc từng từ: chia thời lượng câu theo độ dài từ (GĐ6 sẽ thay bằng mốc thật từ Whisper).
+ * - Mốc từng từ: có mốc thật (giọng tự thu căn bằng Whisper) thì dùng; không thì chia thời lượng câu theo độ dài từ.
  * - Chia cụm theo preset (YouTube: dài, 2 dòng; TikTok: 3–5 từ, chữ to).
  * - Đánh dấu thuật ngữ trong từ điển (bản tiếng Anh in nghiêng).
  */
@@ -11,6 +11,8 @@ export interface SubtitleLineInput {
   text: string
   start: number
   end: number
+  /** Mốc thật từng từ (bỏ qua token chỉ có dấu câu) – từ align.ts */
+  words?: { word: string; start: number; end: number }[]
 }
 
 const r3 = (n: number): number => Math.round(n * 1000) / 1000
@@ -39,6 +41,23 @@ export function wordTimings(words: string[], start: number, end: number): { star
 }
 
 /** Trả về các cụm [từ chỉ số a, tới b) – ưu tiên ngắt sau dấu câu khi cụm đã đủ dài */
+/**
+ * Ghép mốc thật vào token phụ đề: token chỉ có dấu câu (vd "—", "…") không có mốc riêng ⇒ dính vào từ trước.
+ * Số từ không khớp (kịch bản vừa sửa sau khi căn mốc) ⇒ quay về mốc ước lượng.
+ */
+export function realTimings(tokens: string[], real: { start: number; end: number }[], start: number, end: number): { start: number; end: number }[] {
+  const isWord = tokens.map((t) => /[\p{L}\p{N}]/u.test(t))
+  if (isWord.filter(Boolean).length !== real.length) return wordTimings(tokens, start, end)
+  let k = 0
+  let last = start
+  return tokens.map((_, i) => {
+    if (!isWord[i]) return { start: r3(last), end: r3(last) }
+    const w = real[k++]
+    last = w.end
+    return { start: r3(w.start), end: r3(w.end) }
+  })
+}
+
 export function chunkWords(words: string[], maxWords: number, maxChars: number): [number, number][] {
   const chunks: [number, number][] = []
   let begin = 0
@@ -99,7 +118,7 @@ export function buildSubtitles(
   for (const line of lines) {
     const words = tokenize(line.text)
     if (words.length === 0) continue
-    const timings = wordTimings(words, line.start, line.end)
+    const timings = line.words?.length ? realTimings(words, line.words, line.start, line.end) : wordTimings(words, line.start, line.end)
     const { emphasis } = markGlossaryWords(words, glossary)
     for (const [a, b] of chunkWords(words, style.maxWordsPerCue, style.maxCharsPerCue)) {
       const cueWords: SubtitleWord[] = []

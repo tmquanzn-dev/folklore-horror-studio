@@ -8,6 +8,8 @@ import type { AppInfo, ExportFile, IpcArgs, IpcChannel, IpcEventChannel, IpcEven
 import type { JobQueue } from './providers/interfaces'
 import type { ImageService } from './services/imageService'
 import type { PublishService } from './services/publishService'
+import { RECORDING_EXTS, type RecordingService } from './services/recordingService'
+import type { ExportService } from './services/exportService'
 import type { MotionService } from './services/motionService'
 import type { SoundService } from './services/soundService'
 import type { DepthEstimator } from './media/depth'
@@ -24,7 +26,7 @@ import type { ProviderRegistry } from './providers/registry'
 import { rewriteLine } from './services/scriptService'
 import type { StoryService } from './services/storyService'
 import type { VoiceService } from './services/voiceService'
-import { getPublicSettings, getSoundLibraryDir, setApiKey, setSoundLibraryDir, updateFilmSettings, updateSettings } from './settings'
+import { getCapcutDirs, getPublicSettings, getSoundLibraryDir, setApiKey, setCapcutDirs, setSoundLibraryDir, updateFilmSettings, updateSettings } from './settings'
 import type { StoryRepository } from './storage/storyRepo'
 
 /** Có thay đổi ảnh hưởng tới giọng (lời, người nói, delivery) không? Chỉ sửa bản dịch thì không. */
@@ -86,6 +88,8 @@ export interface IpcDeps {
   voices: VoiceService
   images: ImageService
   publish: PublishService
+  recording: RecordingService
+  exporter: ExportService
   motion: MotionService
   sound: SoundService
   depth: DepthEstimator
@@ -351,6 +355,65 @@ export function registerIpc(deps: IpcDeps): void {
     await publish.exportCostCsv(month, r.filePath)
     shell.showItemInFolder(r.filePath)
     return r.filePath
+  })
+
+  // ------------------------------------------------------------ GĐ6: giọng tự thu, xuất cho phần mềm dựng
+  const { recording, exporter } = deps
+  const pickDir = async (title: string, defaultPath: string): Promise<string | null> => {
+    const win = deps.getWindow()
+    const opts = { title, defaultPath, properties: ['openDirectory'] as 'openDirectory'[] }
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
+  }
+  handle('recording:import', async (storyId, releaseId) => {
+    assertIdle(storyId, releaseId)
+    const win = deps.getWindow()
+    const opts = {
+      title: 'Chọn file giọng tự thu (đọc cả bài)',
+      properties: ['openFile'] as 'openFile'[],
+      filters: [{ name: 'Âm thanh', extensions: RECORDING_EXTS }]
+    }
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (r.canceled || !r.filePaths[0]) return null
+    return changed(storyId, await recording.importRecording(storyId, releaseId, r.filePaths[0]))
+  })
+  handle('recording:setSource', async (storyId, releaseId, source) => {
+    assertIdle(storyId, releaseId)
+    if (source !== 'tts' && source !== 'recorded') throw new Error('Nguồn giọng không hợp lệ')
+    return changed(storyId, await recording.setSource(storyId, releaseId, source))
+  })
+  handle('recording:transcribe', async (storyId, releaseId, force) => {
+    assertIdle(storyId, releaseId)
+    const r = await recording.transcribeAndAlign(storyId, releaseId, !!force)
+    changed(storyId, r.release)
+    return r
+  })
+  handle('export:srt', (storyId, releaseId) => exporter.exportSrt(storyId, releaseId))
+  handle('export:fcpxml', (storyId, releaseId) => exporter.exportFcpxml(storyId, releaseId))
+  handle('export:capcut', async (storyId, releaseId) => {
+    const { templateDir, draftsDir } = getCapcutDirs()
+    if (!templateDir) throw new Error('Chưa chọn draft CapCut mẫu. Cách xử lý: tạo 1 draft trong CapCut có 1 ảnh + 1 file âm thanh + 1 dòng chữ, rồi bấm "Chọn draft mẫu".')
+    if (!(await fs.stat(draftsDir).then((s) => s.isDirectory(), () => false))) throw new Error(`Không thấy thư mục draft của CapCut: ${draftsDir}. Cách xử lý: bấm "Chọn thư mục draft CapCut".`)
+    return exporter.exportCapcut(storyId, releaseId, templateDir, draftsDir)
+  })
+  handle('export:chooseCapcutTemplate', async () => {
+    const dir = await pickDir('Chọn THƯ MỤC draft CapCut mẫu', getCapcutDirs().draftsDir)
+    if (!dir) return null
+    await exporter.readCapcutTemplate(dir) // báo lỗi rõ ràng nếu không phải draft / draft bị mã hoá
+    setCapcutDirs({ templateDir: dir })
+    return getPublicSettings()
+  })
+  handle('export:chooseCapcutDrafts', async () => {
+    const dir = await pickDir('Chọn thư mục chứa các draft của CapCut (com.lveditor.draft)', getCapcutDirs().draftsDir)
+    if (!dir) return null
+    setCapcutDirs({ draftsDir: dir })
+    return getPublicSettings()
+  })
+  handle('export:reveal', async (absPath) => {
+    // Chỉ cho mở trong thư mục dữ liệu hoặc thư mục draft CapCut
+    const ok = [repo.dataRoot, getCapcutDirs().draftsDir].some((root) => path.resolve(absPath).toLowerCase().startsWith(path.resolve(root).toLowerCase()))
+    if (!ok) throw new Error('Đường dẫn ngoài thư mục dữ liệu')
+    shell.showItemInFolder(absPath)
   })
 
   handle('images:exportZip', async (storyId, maxEdge) => {

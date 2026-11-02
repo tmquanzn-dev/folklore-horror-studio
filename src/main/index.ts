@@ -19,6 +19,8 @@ import { createAppQueue } from './queue/appQueue'
 import { ImageService } from './services/imageService'
 import { MotionService } from './services/motionService'
 import { PublishService } from './services/publishService'
+import { RecordingService } from './services/recordingService'
+import { ExportService } from './services/exportService'
 import { SoundService } from './services/soundService'
 import { DepthEstimator } from './media/depth'
 import { getSoundLibraryDir } from './settings'
@@ -86,7 +88,7 @@ async function bootstrap(): Promise<void> {
   logger.info(`Thư mục dữ liệu: ${repo.dataRoot}`)
 
   mediaServer = await startMediaServer(() => repo.storiesRoot)
-  renderService = new RenderService(path.join(__dirname, 'renderWorker.js'))
+  renderService = new RenderService(path.join(__dirname, 'renderWorker.js'), app.isPackaged ? path.join(app.getPath('userData'), 'render') : undefined)
 
   // Bản đóng gói: thêm CSP qua header (bản dev cần HMR của Vite nên bỏ qua)
   if (app.isPackaged) {
@@ -150,8 +152,11 @@ async function bootstrap(): Promise<void> {
   const sound = new SoundService(repo, providers, getSoundLibraryDir)
   logger.info(depth.hasModel() ? `Model depth: ${depth.modelPath}` : 'Chưa có model depth – parallax dùng depth ước lượng (tải model ở Cài đặt)', 'depth')
 
-  const remotionEntry = path.join(app.getAppPath(), 'src', 'remotion', 'index.ts')
+  // Dev: bundle composition từ mã nguồn lúc render. Bản cài đặt: bundle dựng sẵn trong resources/remotion-bundle
+  const remotionEntry = app.isPackaged ? path.join(process.resourcesPath, 'remotion-bundle') : path.join(app.getAppPath(), 'src', 'remotion', 'index.ts')
   const publish = new PublishService({ repo, providers, renderer: renderService, remotionEntry, mediaBaseUrl: mediaServer.baseUrl, getRenderScale })
+  const recording = new RecordingService(repo, providers)
+  const exporter = new ExportService(repo)
 
   const runner = new PipelineRunner({
     repo,
@@ -160,8 +165,8 @@ async function bootstrap(): Promise<void> {
     motion,
     sound,
     publish,
+    recording,
     renderer: renderService,
-    // Dev: app.getAppPath() = thư mục dự án. Đóng gói (GĐ6) sẽ dùng bundle dựng sẵn.
     remotionEntry,
     mediaBaseUrl: mediaServer.baseUrl,
     getRenderScale,
@@ -179,6 +184,8 @@ async function bootstrap(): Promise<void> {
     voices: new VoiceService(repo, providers, path.join(repo.dataRoot, 'cache', 'previews')),
     images,
     publish,
+    recording,
+    exporter,
     motion,
     sound,
     depth,

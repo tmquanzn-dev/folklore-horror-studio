@@ -4,6 +4,8 @@
  */
 import fs from 'node:fs/promises'
 import sharp from 'sharp'
+import { computeFocusCrop } from '../../shared/logic/focusCrop'
+import type { FocusPoint } from '../../shared/types'
 
 export interface ThumbOptions {
   width: number
@@ -67,9 +69,18 @@ export function thumbnailSvg(o: ThumbOptions): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs>${shade}</defs><rect width="${W}" height="${H}" fill="url(#g)"/><rect x="0" y="${H - (yt ? 10 : 16)}" width="${W}" height="${yt ? 10 : 16}" fill="${accent}"/>${badge}${text}${sub}</svg>`
 }
 
-export async function composeThumbnail(srcAbs: string, outAbs: string, o: ThumbOptions, focus = { x: 0.5, y: 0.5 }): Promise<void> {
-  const base = await sharp(await fs.readFile(srcAbs))
-    .resize(o.width, o.height, { fit: 'cover', position: focus.x < 0.4 ? 'west' : focus.x > 0.6 ? 'east' : 'centre' })
+/**
+ * Ghép thumbnail. focus = điểm quan trọng của ảnh nguồn (thường là focusPoint của cảnh):
+ * cắt vùng lớn nhất đúng tỷ lệ khung đích, tâm gần focus nhất (cùng hàm với dựng bản dọc) rồi phóng về kích thước đích.
+ */
+export async function composeThumbnail(srcAbs: string, outAbs: string, o: ThumbOptions, focus: FocusPoint = { x: 0.5, y: 0.5 }): Promise<void> {
+  const input = await fs.readFile(srcAbs)
+  const meta = await sharp(input).metadata()
+  if (!meta.width || !meta.height) throw new Error('Không đọc được kích thước ảnh nền thumbnail')
+  const crop = computeFocusCrop(meta.width, meta.height, focus, o.width / o.height)
+  const base = await sharp(input)
+    .extract(crop)
+    .resize(o.width, o.height, { fit: 'fill' })
     .modulate({ brightness: 1.08, saturation: 1.15 })
     .toBuffer()
   const out = await sharp(base).composite([{ input: Buffer.from(thumbnailSvg(o), 'utf8') }]).png().toBuffer()

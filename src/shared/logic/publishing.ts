@@ -84,6 +84,8 @@ export interface ChecklistFacts {
   usesMockMedia: boolean
   soundAllLicensed: boolean
   hasRender: boolean
+  /** Có bản render nhưng nội dung đã sửa sau đó */
+  renderStale?: boolean
   hasThumbnail: boolean
   isSeries: boolean
   partLabelInCaption: boolean
@@ -98,7 +100,13 @@ export function buildChecklist(f: ChecklistFacts, previous: ChecklistItem[] = []
     { id: 'no-mock', labelVi: 'Không còn giọng Mock / ảnh placeholder / clip giả lập', done: !f.usesMockMedia, auto: true, detail: f.usesMockMedia ? 'Tắt Chế độ Mock và tạo lại media thật trước khi đăng' : undefined },
     { id: 'voice-license', labelVi: 'Giấy phép thương mại của giọng AI đã xác nhận', done: f.voicesAllLicensed, auto: true, detail: f.voicesAllLicensed ? undefined : 'Tích "Đã xác nhận giấy phép thương mại" ở Voice Studio sau khi kiểm tra điều khoản provider' },
     { id: 'sound-license', labelVi: 'Nhạc / SFX đều có giấy phép', done: f.soundAllLicensed, auto: true },
-    { id: 'render', labelVi: 'Đã render video bản cuối', done: f.hasRender, auto: true },
+    {
+      id: 'render',
+      labelVi: 'Đã render video bản cuối',
+      done: f.hasRender && !f.renderStale,
+      auto: true,
+      detail: !f.hasRender ? 'Chạy AutoEdit tới bước 21 (Render MP4)' : f.renderStale ? 'Bản render đã cũ (kịch bản / cảnh / âm thanh đã sửa sau lần render) – render lại ở AutoEdit bước 21' : undefined
+    },
     { id: 'thumbnail', labelVi: 'Đã chọn thumbnail / ảnh bìa', done: f.hasThumbnail, auto: true },
     { id: 'description', labelVi: 'Có tiêu đề / mô tả / caption', done: f.hasDescriptionOrCaption, auto: true },
     { id: 'fiction-note', labelVi: 'Mô tả nêu rõ phần truyền thuyết thật và phần hư cấu', done: f.fictionNoteInDescription, auto: true }

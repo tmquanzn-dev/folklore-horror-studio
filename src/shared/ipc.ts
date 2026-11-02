@@ -106,6 +106,14 @@ export interface PublicSettings {
   encryptionAvailable: boolean
   perfMinViews: number
   perfMinAvgWatch: number
+  capcutTemplateDir: string
+  capcutDraftsDir: string
+}
+
+/** Kết quả xuất cho phần mềm dựng */
+export interface EditExportResult {
+  files: string[]
+  warnings: string[]
 }
 
 export interface NewStoryInput {
@@ -256,6 +264,15 @@ export interface IpcInvokeMap {
   'performance:delete': { args: [storyId: string, noteId: string]; result: Story }
   'costs:report': { args: [month: string]; result: CostReport }
   'costs:exportCsv': { args: [month: string]; result: string | null }
+  'recording:import': { args: [storyId: string, releaseId: string]; result: Release | null }
+  'recording:setSource': { args: [storyId: string, releaseId: string, source: 'tts' | 'recorded']; result: Release }
+  'recording:transcribe': { args: [storyId: string, releaseId: string, force: boolean]; result: { release: Release; cost: number; coverage: number; lowLines: number } }
+  'export:srt': { args: [storyId: string, releaseId: string]; result: EditExportResult }
+  'export:fcpxml': { args: [storyId: string, releaseId: string]; result: EditExportResult }
+  'export:capcut': { args: [storyId: string, releaseId: string]; result: EditExportResult }
+  'export:chooseCapcutTemplate': { args: []; result: PublicSettings | null }
+  'export:chooseCapcutDrafts': { args: []; result: PublicSettings | null }
+  'export:reveal': { args: [absPath: string]; result: void }
   'release:updateScene': {
     args: [storyId: string, releaseId: string, sceneId: string, patch: ScenePatch]
     result: Release
@@ -340,6 +357,15 @@ const CHANNEL_FLAGS = {
   'performance:delete': 1,
   'costs:report': 1,
   'costs:exportCsv': 1,
+  'recording:import': 1,
+  'recording:setSource': 1,
+  'recording:transcribe': 1,
+  'export:srt': 1,
+  'export:fcpxml': 1,
+  'export:capcut': 1,
+  'export:chooseCapcutTemplate': 1,
+  'export:chooseCapcutDrafts': 1,
+  'export:reveal': 1,
   'pipeline:start': 1,
   'pipeline:continue': 1,
   'pipeline:cancel': 1,

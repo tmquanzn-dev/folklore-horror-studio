@@ -20,6 +20,9 @@ interface SettingsSchema {
   /** Ngưỡng hiệu quả để gợi ý "Chuyển thể sang YouTube" */
   perfMinViews: number
   perfMinAvgWatch: number
+  /** Draft CapCut mẫu (template mode) và thư mục draft của CapCut */
+  capcutTemplateDir: string
+  capcutDraftsDir: string
 }
 
 export interface FilmSettings {
@@ -60,7 +63,9 @@ function getStore(): Store<SettingsSchema> {
         filmStudio: { concurrency: 4, autoRun: true, autoDl: true },
         soundLibraryDir: '',
         perfMinViews: platformsConfig.publishing.performanceDefaults.minViews,
-        perfMinAvgWatch: platformsConfig.publishing.performanceDefaults.minAvgWatchPercent
+        perfMinAvgWatch: platformsConfig.publishing.performanceDefaults.minAvgWatchPercent,
+        capcutTemplateDir: '',
+        capcutDraftsDir: ''
       }
     })
   }
@@ -80,6 +85,23 @@ export function getSoundLibraryDir(): string {
 
 export function setSoundLibraryDir(dir: string): void {
   getStore().set('soundLibraryDir', dir)
+}
+
+/** Thư mục draft mặc định của CapCut trên Windows */
+export function defaultCapcutDraftsDir(): string {
+  const local = process.env['LOCALAPPDATA'] ?? path.join(app.getPath('home'), 'AppData', 'Local')
+  return path.join(local, 'CapCut', 'User Data', 'Projects', 'com.lveditor.draft')
+}
+
+export function getCapcutDirs(): { templateDir: string; draftsDir: string } {
+  const s = getStore()
+  return { templateDir: (s.get('capcutTemplateDir') as string | undefined) ?? '', draftsDir: (s.get('capcutDraftsDir') as string | undefined) || defaultCapcutDraftsDir() }
+}
+
+export function setCapcutDirs(patch: { templateDir?: string; draftsDir?: string }): void {
+  const s = getStore()
+  if (patch.templateDir !== undefined) s.set('capcutTemplateDir', patch.templateDir)
+  if (patch.draftsDir !== undefined) s.set('capcutDraftsDir', patch.draftsDir)
 }
 
 export function getMonthlyBudget(): number {
@@ -102,6 +124,8 @@ export function getPublicSettings(): PublicSettings {
     apiKeyStatus: Object.fromEntries(PROVIDERS_WITH_KEYS.map((p) => [p, !!keys[p]])),
     perfMinViews: s.get('perfMinViews') ?? platformsConfig.publishing.performanceDefaults.minViews,
     perfMinAvgWatch: s.get('perfMinAvgWatch') ?? platformsConfig.publishing.performanceDefaults.minAvgWatchPercent,
+    capcutTemplateDir: getCapcutDirs().templateDir,
+    capcutDraftsDir: getCapcutDirs().draftsDir,
     encryptionAvailable: safeStorage.isEncryptionAvailable()
   }
 }

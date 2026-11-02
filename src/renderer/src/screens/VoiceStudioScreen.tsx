@@ -10,6 +10,7 @@ import { ttsEstimateLabel } from '../lib/estimate'
 import { formatTime } from '../lib/format'
 import { useMediaUrl } from '../lib/preview'
 import { PROCESS_PRESETS, presetIdOf } from '../lib/voicePresets'
+import { RecordingPanel } from './voice/RecordingPanel'
 import { useApp, useCurrentRelease, useCurrentStory, useMockMode } from '../store/appStore'
 
 export function VoiceStudioScreen(): JSX.Element {
@@ -57,6 +58,7 @@ export function VoiceStudioScreen(): JSX.Element {
           <PlatformBadge platform={release.platform} />
           <span className="text-xs text-slate-400">{release.title}</span>
         </div>
+        <RecordingPanel release={release} />
         <div className="panel-title">Giọng theo người nói ({lang.toUpperCase()})</div>
         {speakers.map((c) => {
           const v = resolveVoice(c.id, lang, library, story.channelPresetId)
@@ -143,10 +145,11 @@ export function VoiceStudioScreen(): JSX.Element {
       <main className="flex min-h-0 flex-col">
         <div className="flex flex-wrap items-center gap-3 border-b border-ink-700 bg-ink-850 px-5 py-2 text-sm">
           <span className="text-slate-300">
-            {withTake}/{release.script.lines.length} câu đã có giọng
+            {release.voiceSource === 'recorded' ? 'Nguồn giọng: tự thu · ' : ''}
+            {withTake}/{release.script.lines.length} câu đã có giọng TTS
             {release.voiceTrack ? ` · voice track ${formatTime(release.voiceTrack.duration)}` : ''}
           </span>
-          {withTake < release.script.lines.length && !running ? (
+          {withTake < release.script.lines.length && !running && release.voiceSource !== 'recorded' ? (
             <AsyncButton
               className="btn-secondary text-xs"
               onClick={async () => {
@@ -195,6 +198,11 @@ export function VoiceStudioScreen(): JSX.Element {
                     <span className="text-slate-300">{speaker?.name ?? l.speakerId}</span>
                     <span>· {v?.name ?? 'chưa có giọng'}</span>
                     {l.start != null ? <span>· @ {formatTime(l.start)}</span> : null}
+                    {l.alignConfidence != null ? (
+                      <span className={l.alignConfidence < 0.6 ? 'font-semibold text-red-400' : 'text-emerald-400'} title="Độ khớp với file tự thu">
+                        · khớp {Math.round(l.alignConfidence * 100)}%
+                      </span>
+                    ) : null}
                   </div>
                   <p className="mt-1 text-sm text-slate-100">{l.text}</p>
                   <div className="mt-2 grid grid-cols-[minmax(0,1fr)_80px_90px_90px] items-end gap-2">

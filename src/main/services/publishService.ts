@@ -6,6 +6,7 @@
  *  - Sổ hiệu quả (PerformanceNote) và sổ chi phí (báo cáo theo tháng, xuất CSV)
  * Không có tính năng đăng bài tự động (nguyên tắc 7) – chỉ chuẩn bị nội dung để người dùng tự đăng.
  */
+import { renderFingerprint } from '../render/fingerprint'
 import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -13,7 +14,7 @@ import { buildCompositionProps } from '../../shared/composition'
 import { platformsConfig } from '../../shared/config'
 import { buildCostReport, costCsv, type CostReport, type CostRow } from '../../shared/logic/business'
 import { aiDisclosureNeeded, buildChecklist, buildYoutubeDescription, normalizeHashtags, normalizeTags, type ChecklistFacts } from '../../shared/logic/publishing'
-import { selectTeaserWindow } from '../../shared/logic/shorts'
+import { selectTeaserWindow, spoilerBeatIds } from '../../shared/logic/shorts'
 import { resolveVoice } from '../../shared/logic/voices'
 import { buildMediaUrl, toRelPath } from '../../shared/media'
 import type { Library, MediaRef, PerformanceNote, PublishingPackage, Release, Story } from '../../shared/types'
@@ -148,12 +149,21 @@ export class PublishService {
       usesMockMedia: mockMedia,
       soundAllLicensed: release.soundCues.every((c) => c.kind === 'silence' || assets.get(c.assetId ?? '')?.licenseConfirmed),
       hasRender: files.length > 0,
+      renderStale: this.renderStale(story, release, lib, files),
       hasThumbnail: !!p?.selectedThumbnail,
       isSeries: release.partCount > 1,
       partLabelInCaption: !partLabel || !!p?.tiktok?.captionVi.includes(partLabel),
       fictionNoteInDescription: release.platform === 'tiktok' ? true : /fictional|hư cấu/i.test(p?.youtube?.description ?? ''),
       hasDescriptionOrCaption: !!(p?.youtube?.description || p?.tiktok?.captionVi)
     }
+  }
+
+  /** Bản render mới nhất có còn khớp nội dung hiện tại? (bản cũ chưa có lastRender ⇒ không kết luận được ⇒ coi như khớp) */
+  renderStale(story: Story, release: Release, lib: Library, files: string[]): boolean {
+    const lr = release.lastRender
+    if (!lr || files.length === 0) return false
+    if (!files.includes(path.basename(lr.path))) return true
+    return renderFingerprint(story, release, lib) !== lr.fingerprint
   }
 
   async refreshChecklist(storyId: string, releaseId: string): Promise<Release> {
@@ -186,7 +196,9 @@ export class PublishService {
     const scene = story.sceneBank.find((s) => s.id === sceneId)
     const yt = release.platform === 'youtube'
     const aspect = yt ? '16:9' : '9:16'
-    const media = scene?.media[aspect] ?? scene?.media['16:9']
+    // Ưu tiên ảnh đúng khung; thiếu ảnh 9:16 riêng thì dùng ảnh 16:9 và cắt quanh focusPoint
+    const own = scene?.media[aspect]
+    const media = own ?? scene?.media['16:9']
     if (!scene || !media) throw new Error('Chưa có ảnh cảnh để làm thumbnail – chạy bước 6 trước')
     const concept = yt ? release.publishing?.youtube?.thumbnailConcepts[0] : release.publishing?.tiktok?.coverConcepts[0]
     const text = opts.text ?? concept?.text ?? story.name
@@ -207,7 +219,8 @@ export class PublishService {
         layout: yt ? 'youtube' : 'cover',
         accent: ch?.palette[4]
       },
-      aspect === '16:9' ? scene.focusPoint : { x: 0.5, y: 0.5 }
+      // Ảnh 9:16 riêng đã bố cục cho khung dọc ⇒ cắt giữa; mọi trường hợp dùng ảnh 16:9 ⇒ cắt theo focusPoint
+      own && aspect === '9:16' ? { x: 0.5, y: 0.5 } : scene.focusPoint
     )
     const ref: MediaRef = { path: toRelPath('releases', releaseId, 'thumbs', file), mediaType: 'image', source: 'own', provider: 'quick-thumbnail', model: `scene ${scene.id} + chữ`, cost: 0, createdAt: new Date().toISOString(), width: size.width, height: size.height }
     await this.repo.updateRelease(storyId, releaseId, (r) => {
@@ -230,13 +243,25 @@ export class PublishService {
     const kinds = new Map(release.script.sections.map((s) => [s.id, s.kind]))
     let win = range ? { start: range.start, end: range.end } : null
     if (!win) {
-      const w = selectTeaserWindow(
-        release.script.lines.filter((l) => l.start != null && l.end != null).map((l) => ({ id: l.id, start: l.start as number, end: l.end as number, beatId: l.beatId, sectionKind: kinds.get(l.sectionId) ?? 'story' })),
-        (b) => beats.get(b) ?? 0.5,
-        { minSec: sp.minSec - 2, maxSec: sp.maxSec - sp.endCardSec }
-      )
-      if (!w) throw new Error('Không tìm được đoạn 30–60 giây phù hợp (bản quá ngắn?)')
-      win = { start: Math.max(0, w.start - 0.3), end: Math.min(vt.duration, w.end + 0.5) }
+      // Không lộ cao trào: bỏ beat cao trào và các beat sau nó
+      const spoilers = spoilerBeatIds(story.outline.beats)
+      const timed = release.script.lines.filter((l) => l.start != null && l.end != null)
+      // Giữ nguyên thứ tự câu (để kiểm tra liền mạch), câu lộ cao trào đánh dấu 'spoiler' ⇒ không được chọn
+      const candidates = timed.map((l) => ({
+        id: l.id,
+        start: l.start as number,
+        end: l.end as number,
+        beatId: l.beatId,
+        sectionKind: spoilers.has(l.beatId) ? 'spoiler' : (kinds.get(l.sectionId) ?? 'story')
+      }))
+      const pick = (minSec: number): ReturnType<typeof selectTeaserWindow> =>
+        selectTeaserWindow(candidates, (b) => beats.get(b) ?? 0.5, { minSec, maxSec: sp.maxSec - sp.endCardSec })
+      // Phần trước cao trào quá ngắn ⇒ chấp nhận teaser ngắn hơn (tối thiểu 15s) thay vì lộ cao trào
+      const w = pick(sp.minSec - 2) ?? pick(15)
+      if (!w) throw new Error('Không đủ nội dung trước cao trào để cắt teaser (cần ≥ 15 giây) – chọn đoạn thủ công hoặc bỏ qua Shorts')
+      // Đệm 0,5s cuối nhưng không lấn sang câu kế tiếp
+      const next = timed.find((l) => (l.start as number) >= w.end - 0.01)
+      win = { start: Math.max(0, w.start - 0.3), end: Math.min(vt.duration, w.end + 0.5, next ? (next.start as number) : Infinity) }
     }
     const len = win.end - win.start
     if (len < 10 || len > 60) throw new Error('Đoạn teaser phải dài 10–60 giây')

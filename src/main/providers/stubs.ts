@@ -1,30 +1,8 @@
 /**
- * Adapter của giai đoạn sau – giữ để kiến trúc đầy đủ.
- * (TTS ElevenLabs/OpenAI và LLM OpenAI đã triển khai ở GĐ2: xem providers/tts và llm/.)
+ * (GĐ6) Các adapter từng là stub nay đã triển khai:
+ *   - Chép lời: providers/stt/whisper.ts (OpenAI Whisper) + providers/stt/mockTranscriber.ts
+ *   - Xuất cho phần mềm dựng: main/exporters (SRT, FCPXML, CapCut template)
+ * File này giữ lại để import cũ không gãy.
  */
-import { providersConfig } from '../../shared/config'
-import type {
-  Exporter,
-  ExportFormat,
-  ExportResult,
-  Transcriber,
-  Transcript
-} from './interfaces'
-
-export class WhisperTranscriber implements Transcriber {
-  readonly id = 'openai-whisper'
-  readonly model = providersConfig.stt.openai.model
-  transcribe(): Promise<Transcript> {
-    throw new Error('Chưa triển khai – Giai đoạn 6')
-  }
-}
-
-export class NotImplementedExporter implements Exporter {
-  constructor(
-    readonly format: ExportFormat,
-    readonly displayName: string
-  ) {}
-  export(): Promise<ExportResult> {
-    throw new Error('Chưa triển khai – Giai đoạn 6')
-  }
-}
+export { WhisperTranscriber } from './stt/whisper'
+export { MockTranscriber } from './stt/mockTranscriber'

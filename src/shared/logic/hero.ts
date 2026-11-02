@@ -1,6 +1,7 @@
 /**
  * Chọn cảnh hero (Mức 3 – video AI) theo heroRatio của Release.
- * Ưu tiên: cảnh mở đầu (hook) và cảnh thuộc beat có cường độ cảm xúc cao nhất (cao trào).
+ * Ưu tiên: cảnh mở đầu (hook) và cảnh thuộc beat có cường độ cảm xúc cao nhất (cao trào);
+ * tránh 2 cảnh hero liền nhau khi còn lựa chọn khác.
  */
 export interface HeroCandidate {
   id: string
@@ -25,7 +26,17 @@ export function selectHeroScenes(
     score: beatIntensity(s.beatId) + (index === 0 ? 0.6 : 0)
   }))
   scored.sort((a, b) => (b.score !== a.score ? b.score - a.score : a.index - b.index))
-  const chosen = new Set(scored.slice(0, count).map((s) => s.id))
+  // Luật đa dạng: 2 cảnh hero liền nhau = 2 clip 'aiClip' liền nhau ⇒ lượt 1 bỏ cảnh kề cảnh đã chọn, lượt 2 mới lấp cho đủ
+  const picked = new Set<number>()
+  for (const pass of [0, 1]) {
+    for (const s of scored) {
+      if (picked.size >= count) break
+      if (picked.has(s.index)) continue
+      if (pass === 0 && (picked.has(s.index - 1) || picked.has(s.index + 1))) continue
+      picked.add(s.index)
+    }
+  }
+  const chosen = new Set([...picked].map((i) => scenes[i].id))
   // Trả về theo thứ tự trên timeline
   return scenes.filter((s) => chosen.has(s.id)).map((s) => s.id)
 }

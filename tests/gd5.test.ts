@@ -10,48 +10,62 @@ import { composeThumbnail, thumbnailSvg, wrapWords } from '../src/main/media/thu
 import { applyWindow, type CompositionProps } from '../src/shared/composition'
 import { adaptSuggestion, buildCostReport, costCsv, engagementRate, type CostRow } from '../src/shared/logic/business'
 import { buildChecklist, buildYoutubeDescription, fmtTimestamp, normalizeHashtags, normalizeTags, validChapters, type ChecklistFacts } from '../src/shared/logic/publishing'
-import { selectTeaserWindow, type TeaserLine } from '../src/shared/logic/shorts'
+import { selectTeaserWindow, spoilerBeatIds, type TeaserLine } from '../src/shared/logic/shorts'
 import { migrateRelease } from '../src/shared/migrate'
 import type { Chapter, FolkloreEntry, PerformanceNote, PronunciationEntry, Release } from '../src/shared/types'
 
 // ---------------------------------------------------------------- Shorts teaser
-describe('selectTeaserWindow', () => {
-  // 30 câu × 4s; beat b2 (câu 10–19) căng nhất
+describe('selectTeaserWindow + spoilerBeatIds', () => {
+  // 30 câu × 4s; b1 mở đầu (0.3), b2 dựng căng (0.7), b3 CAO TRÀO (1.0), b4 kết (0.5)
+  const beats = [
+    { id: 'b1', order: 1, emotionalIntensity: 0.3 },
+    { id: 'b2', order: 2, emotionalIntensity: 0.7 },
+    { id: 'b3', order: 3, emotionalIntensity: 1.0 },
+    { id: 'b4', order: 4, emotionalIntensity: 0.5 }
+  ]
+  const beatOf = (i: number): string => (i < 8 ? 'b1' : i < 18 ? 'b2' : i < 24 ? 'b3' : 'b4')
+  const intensity = (b: string): number => beats.find((x) => x.id === b)?.emotionalIntensity ?? 0.5
+  const spoilers = spoilerBeatIds(beats)
   const lines: TeaserLine[] = Array.from({ length: 30 }, (_, i) => ({
     id: `l${i}`,
     start: i * 4,
     end: i * 4 + 3.8,
-    beatId: i < 10 ? 'b1' : i < 20 ? 'b2' : 'b3',
-    sectionKind: i < 2 ? 'coldOpen' : i >= 28 ? 'outro' : 'story'
+    beatId: beatOf(i),
+    sectionKind: spoilers.has(beatOf(i)) ? 'spoiler' : i < 2 ? 'coldOpen' : 'story'
   }))
-  const intensity = (b: string): number => ({ b1: 0.3, b2: 0.9, b3: 0.5 })[b] ?? 0.5
+  const idx = (id: string): number => Number(id.slice(1))
 
-  it('chọn đoạn liền mạch trong beat căng nhất, độ dài trong khoảng', () => {
+  it('spoilerBeatIds = cao trào + mọi beat sau nó (theo order, không theo thứ tự mảng)', () => {
+    expect([...spoilers].sort()).toEqual(['b3', 'b4'])
+    expect([...spoilerBeatIds([...beats].reverse())].sort()).toEqual(['b3', 'b4'])
+    expect(spoilerBeatIds([]).size).toBe(0)
+  })
+
+  it('teaser KHÔNG chứa beat cao trào trở về sau, dừng ngay trước cao trào', () => {
     const w = selectTeaserWindow(lines, intensity, { minSec: 28, maxSec: 55 })!
     expect(w).not.toBeNull()
+    expect(w.lineIds.every((id) => !spoilers.has(beatOf(idx(id))))).toBe(true)
     const len = w.end - w.start
     expect(len).toBeGreaterThanOrEqual(28)
     expect(len).toBeLessThanOrEqual(55)
-    // bắt đầu/kết thúc đúng mép câu
+    // đúng mép câu, kết ở câu cuối trước cao trào (căng nhất còn được phép)
     expect(lines.some((l) => l.start === w.start)).toBe(true)
-    expect(lines.some((l) => l.end === w.end)).toBe(true)
-    // nằm gọn trong beat b2
-    expect(w.lineIds.every((id) => Number(id.slice(1)) >= 10 && Number(id.slice(1)) < 20)).toBe(true)
+    expect(w.lineIds[w.lineIds.length - 1]).toBe('l17')
   })
 
-  it('bỏ cold open/outro; bản quá ngắn ⇒ null', () => {
-    const w = selectTeaserWindow(lines, () => 0.5, { minSec: 28, maxSec: 55 })!
+  it('bỏ cold open; phần trước cao trào quá ngắn ⇒ null', () => {
+    const w = selectTeaserWindow(lines, intensity, { minSec: 28, maxSec: 55 })!
     expect(w.lineIds).not.toContain('l0')
-    expect(w.lineIds).not.toContain('l29')
-    expect(selectTeaserWindow(lines.slice(0, 5), intensity, { minSec: 28, maxSec: 55 })).toBeNull()
+    const early = lines.map((l, i) => (i >= 6 ? { ...l, sectionKind: 'spoiler' } : l))
+    expect(selectTeaserWindow(early, intensity, { minSec: 28, maxSec: 55 })).toBeNull()
   })
 
-  it('không nối qua câu không liền nhau', () => {
-    const gappy = lines.map((l, i) => (i === 15 ? { ...l, sectionKind: 'explain' } : l))
-    const w = selectTeaserWindow(gappy, intensity, { minSec: 28, maxSec: 55 })!
-    expect(w.lineIds).not.toContain('l15')
-    const idx = w.lineIds.map((id) => Number(id.slice(1)))
-    expect(idx.every((v, i) => i === 0 || v === idx[i - 1] + 1)).toBe(true)
+  it('câu spoiler ở giữa (vd hook nhắc lại cao trào) không làm 2 đoạn hai bên bị nối liền', () => {
+    const gappy = lines.map((l, i) => (i === 12 ? { ...l, sectionKind: 'spoiler' } : l))
+    const w = selectTeaserWindow(gappy, intensity, { minSec: 20, maxSec: 55 })!
+    expect(w.lineIds).not.toContain('l12')
+    const ix = w.lineIds.map(idx)
+    expect(ix.every((v, i) => i === 0 || v === ix[i - 1] + 1)).toBe(true)
   })
 })
 
@@ -151,6 +165,15 @@ describe('publishing', () => {
     expect(again.some((c) => c.id === 'part-label')).toBe(false)
   })
 
+  it('checklist: có MP4 nhưng nội dung đã sửa sau render ⇒ mục render chưa xong, kèm hướng dẫn', () => {
+    const base: ChecklistFacts = { voicesAllLicensed: true, usesMockMedia: false, soundAllLicensed: true, hasRender: true, hasThumbnail: true, isSeries: false, partLabelInCaption: true, fictionNoteInDescription: true, hasDescriptionOrCaption: true }
+    expect(buildChecklist(base).find((c) => c.id === 'render')).toMatchObject({ done: true, detail: undefined })
+    const stale = buildChecklist({ ...base, renderStale: true }).find((c) => c.id === 'render')!
+    expect(stale.done).toBe(false)
+    expect(stale.detail).toMatch(/đã cũ/)
+    expect(buildChecklist({ ...base, hasRender: false }).find((c) => c.id === 'render')?.detail).toMatch(/bước 21/)
+  })
+
   it('migrateRelease: gói cũ (ý tưởng dạng chuỗi) được nâng cấp', () => {
     const r = migrateRelease({
       publishing: { youtube: { titleOptions: ['T'], description: 'd', tags: [], thumbnailConcepts: ['CREEPY RIVER'] }, aiDisclosureNeeded: true, checklist: [] }
@@ -223,6 +246,26 @@ describe('thumbnail', () => {
     const cover = path.join(dir, 'cover.jpg')
     await composeThumbnail(src, cover, { width: 1080, height: 1920, text: 'Ma da', badge: 'PHẦN 2/3', layout: 'cover' }, { x: 0.5, y: 0.5 })
     expect(await sharp(cover).metadata()).toMatchObject({ width: 1080, height: 1920 })
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
+  it('ảnh bìa dọc từ ảnh 16:9 cắt quanh focusPoint (không cắt giữa)', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fhs-thumb-'))
+    // Ảnh 1600×900: nửa trái đỏ (nhân vật), nửa phải xanh
+    const src = path.join(dir, 'wide.png')
+    const half = await sharp({ create: { width: 800, height: 900, channels: 3, background: '#ff0000' } }).png().toBuffer()
+    await sharp({ create: { width: 1600, height: 900, channels: 3, background: '#0000ff' } }).composite([{ input: half, left: 0, top: 0 }]).png().toFile(src)
+    const sample = async (focusX: number): Promise<{ r: number; b: number }> => {
+      const out = path.join(dir, `c${focusX}.png`)
+      await composeThumbnail(src, out, { width: 1080, height: 1920, text: '', layout: 'cover' }, { x: focusX, y: 0.5 })
+      // điểm giữa ảnh, phía trên (tránh chữ và lớp tối phía dưới)
+      const { data } = await sharp(out).extract({ left: 540, top: 300, width: 1, height: 1 }).raw().toBuffer({ resolveWithObject: true })
+      return { r: data[0], b: data[2] }
+    }
+    const left = await sample(0.2)
+    expect(left.r).toBeGreaterThan(left.b)
+    const right = await sample(0.8)
+    expect(right.b).toBeGreaterThan(right.r)
     await fs.rm(dir, { recursive: true, force: true })
   })
 })

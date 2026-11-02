@@ -1,4 +1,4 @@
-# Folklore Horror Studio – Giai đoạn 1–5
+# Folklore Horror Studio – Giai đoạn 1–6
 
 Ứng dụng desktop (Windows 10/11) sản xuất video kể chuyện kinh dị dân gian Việt Nam & Đông Nam Á.
 Mô hình cốt lõi: **một Story → nhiều Release** (YouTube EN 16:9, TikTok VI 9:16, …).
@@ -127,10 +127,11 @@ npm run dev          # mở app ở chế độ phát triển
 Lệnh khác:
 
 ```bash
-npm test             # 33 unit test (logic thuần)
+npm test             # unit test (logic thuần + ffmpeg/sharp thật)
 npm run typecheck    # kiểm tra kiểu cả main lẫn renderer
 npm run smoke        # chạy TOÀN BỘ pipeline cho 2 Release + render 2 MP4 (bản 50%) vào .smoke-output/
 npm run build        # build vào out/
+npm run dist         # đóng gói installer Windows (xem mục 10)
 ```
 
 > Lần render đầu tiên, Remotion tự tải **Chrome Headless Shell** (~100 MB) – cần mạng, chỉ một lần.
@@ -269,6 +270,51 @@ Cài đặt → dán key Google Gemini → tắt Chế độ Mock → Film Studi
 5. Story → "Ghi số liệu" cho bản TikTok với 25.000 lượt xem, 50% ⇒ banner gợi ý; bấm ⇒ hộp thêm bản YouTube/EN chọn sẵn.
 6. Sổ chi phí (với API thật hoặc dữ liệu có chi phí) ⇒ số khớp ledger; "Xuất CSV" mở được bằng Excel, tiếng Việt đúng dấu.
 
-## 10. Giai đoạn sau
+## 10. Giai đoạn 6 – Mở rộng (giai đoạn cuối của đặc tả gốc)
 
-Còn stub (`throw new Error('Chưa triển khai – Giai đoạn 6')`): tự thu âm + Whisper, xuất .srt/FCPXML/CapCut, installer.
+### Sửa sau review GĐ5
+- **Shorts teaser không lộ cao trào**: loại beat có cường độ cao nhất (cao trào) và mọi beat sau nó khỏi vùng chọn (`spoilerBeatIds`) ⇒ teaser dừng ngay trước cao trào. Câu "spoiler" vẫn giữ chỗ trong mảng nên 2 đoạn hai bên không bị nối nhầm. Phần trước cao trào ngắn ⇒ teaser ngắn hơn (≥ 15 s) thay vì lộ cao trào.
+- **Ảnh bìa cắt theo focusPoint**: dùng chung `computeFocusCrop` với bước dựng bản dọc (thay cho `position: west/east/centre` của sharp); ảnh 16:9 luôn cắt quanh focusPoint, ảnh 9:16 riêng cắt giữa.
+- **Checklist "Đã render" phát hiện bản cũ**: lúc render lưu `release.lastRender.fingerprint` = hash toàn bộ props composition + kịch bản; sửa cảnh/giọng/âm thanh/phụ đề sau đó ⇒ "Bản render đã cũ – render lại". (Không so mtime với `updatedAt` vì `updatedAt` đổi cả khi chỉ sửa gói xuất bản ⇒ báo sai.)
+- **"1 vi phạm đa dạng" ở bước 17**: nguyên nhân là 2 cảnh hero liền nhau ⇒ 2 clip video AI liền nhau (không liên quan số cảnh lẻ). Chọn cảnh hero nay tránh cảnh kề nhau khi còn lựa chọn (cùng luật 2 lượt như parallax).
+
+### Giọng tự thu + Whisper
+- Voice Studio → **Nguồn giọng: Tự thu cả bài** → "Nhập file tự thu" (wav/mp3/m4a/flac/ogg…) → "Chép lời & căn mốc".
+- Chép lời: OpenAI Whisper (`whisper-1`, mốc từng từ; nén MP3 16 kHz, file dài tự cắt khúc 10 phút; gợi ý chính tả = tên nhân vật + thuật ngữ + tên truyền thuyết). Chế độ Mock: chép lời giả lập offline. Báo giá trước (~$0,006/phút), kiểm ngân sách Story, ghi sổ chi phí loại `stt`.
+- Căn mốc (`shared/logic/align.ts`): so khớp từ Whisper với từ kịch bản bằng quy hoạch động, bỏ dấu tiếng Việt khi so, chịu được đọc thừa / đọc lại / bỏ sót / nghe lệch ⇒ mốc từng câu + **mốc từng từ thật** cho phụ đề (chữ vẫn lấy từ kịch bản). Câu khớp < 60% đánh dấu đỏ để nghe lại; khớp toàn bài < 30% ⇒ bước 11 dừng với hướng dẫn (nhầm file?).
+- Pipeline: bước 11 chép lời + căn mốc (dùng lại bản chép lời nếu file không đổi), bước 12 lọc/nén theo chuỗi xử lý của người kể (không reverb) ⇒ `voice_processed.wav`; các bước sau (khớp cảnh, mix, phụ đề, render) giữ nguyên.
+
+### Xuất cho phần mềm dựng (màn Xuất bản)
+- **SRT**: ≤ 2 dòng × 42 ký tự, UTF-8 BOM; bản EN kèm `.vi.srt` từ cột dịch. Ghi vào `releases/<id>/exports/edit/`.
+- **FCPXML 1.8** (Final Cut Pro, DaVinci Resolve: File → Import → Timeline): ảnh theo cảnh đúng khung hình, clip video AI, bản mix, giọng riêng (tắt sẵn), marker chapter; đường dẫn Unicode mã hoá `file:///`. Không xuất được Ken Burns/parallax/phụ đề cháy chữ (dùng file .srt). Premiere Pro không đọc FCPXML gốc.
+- **CapCut – template mode**: tạo 1 draft trong CapCut có **1 ảnh + 1 file âm thanh + 1 dòng chữ** (chỉnh font/màu/vị trí/animation theo ý) → "Chọn draft mẫu". App nhân bản đoạn mẫu cho từng cảnh / cụm phụ đề, ghi draft MỚI vào thư mục draft của CapCut (không ghi đè). Nếu `draft_content.json` của mẫu **không phải JSON** (CapCut bản mới mã hoá) ⇒ báo lỗi rõ ràng, **không cố giải mã** – dùng FCPXML/SRT thay thế. Định dạng draft CapCut không được công bố nên chưa thể đảm bảo mọi phiên bản CapCut mở được.
+
+### Đóng gói installer (electron-builder)
+```bash
+npm run dist        # build → dựng sẵn bundle Remotion → installer NSIS: dist/Folklore-Horror-Studio-Setup-<version>.exe
+npm run dist:dir    # bản chạy không cần cài: dist/win-unpacked/Folklore Horror Studio.exe
+```
+- Bundle Remotion dựng sẵn lúc build (`scripts/bundle-remotion.mjs` → `resources/remotion-bundle`) ⇒ bản cài không cần webpack.
+- ffmpeg, ffprobe, sharp, onnxruntime, compositor Remotion nằm trong `app.asar.unpacked`.
+- Tiến trình render chạy với thư mục làm việc `%APPDATA%\Folklore Horror Studio\render` ⇒ Chrome Headless Shell (~100 MB) tải về đó ở **lần render đầu** (cần mạng).
+- Gỡ cài đặt không xoá dữ liệu (Story trong Documents, cài đặt + API key trong %APPDATA%).
+- Installer **chưa ký số** ⇒ Windows SmartScreen cảnh báo "Unknown publisher" lần đầu → More info → Run anyway. Muốn hết cảnh báo cần mua chứng thư ký mã (code signing certificate).
+- Icon: `build/icon.png` (sinh lại: `node scripts/make-icon.mjs`).
+
+### Kiểm thử
+- `npm test` – thêm `tests/gd6.test.ts` (căn mốc: dấu tiếng Việt, đọc thừa/đọc lại/bỏ sót, câu không đọc; Whisper với fetch giả; Mock chép lời trên file có khoảng lặng; SRT; FCPXML cân thẻ + khít khung hình; CapCut: draft mã hoá ⇒ lỗi, nhân bản đoạn, dọn material cũ, nội dung chữ 2 định dạng) + test các bản sửa GĐ5.
+- `npm run smoke` – thêm: (4) bản TikTok chuyển sang giọng tự thu (Mock) chạy lại từ bước 11 → MP4; (5) xuất SRT/FCPXML (mọi file tham chiếu tồn tại) + CapCut từ draft mẫu + draft mã hoá báo lỗi.
+
+### Checklist thủ công GĐ6
+1. Xuất bản (bản YouTube mẫu đã chạy pipeline) → Xuất FCPXML → mở bằng DaVinci Resolve (File → Import → Timeline) ⇒ ảnh đúng thứ tự, có audio, marker chapter.
+2. Xuất SRT → mở bằng Notepad: tiếng Việt đúng dấu; tải thử lên YouTube Studio (Phụ đề → Tải tệp lên).
+3. CapCut: tạo draft mẫu (1 ảnh + 1 nhạc + 1 chữ), đóng CapCut → "Chọn draft mẫu" → Xuất CapCut → mở CapCut thấy draft mới. Nếu báo "mã hoá" ⇒ CapCut bản đó không dùng được template mode.
+4. Voice Studio → Tự thu cả bài → nhập file tự đọc kịch bản → Chép lời & căn mốc (Mock trước, sau đó Whisper thật) ⇒ % khớp, câu đỏ là câu đọc sai.
+5. AutoEdit → chạy lại từ bước 11 ⇒ video dùng giọng tự thu, phụ đề chạy theo từng từ khớp lời đọc.
+6. `npm run dist` → cài file Setup → mở app từ Start Menu → render 1 video (lần đầu tải Chrome) → xuất FCPXML.
+
+## 11. Tiếp theo – GĐ7: Nhân vật rối 2D (puppet)
+
+Đặc tả đầy đủ: [`docs/spec-gd7-puppet.md`](docs/spec-gd7-puppet.md) (chớp mắt, khớp môi 9 hình miệng, biểu cảm theo delivery, rig cấp A/B, màn "Rối nhân vật"; chia GĐ7.1 → 7.4). Cuối file có ghi chú kỹ thuật nối từ code hiện tại (mốc từ của giọng tự thu dùng lại được cho khớp môi, fingerprint render, luật đa dạng).
+
+Tài liệu khác: [`docs/spec-goc.md`](docs/spec-goc.md) (đặc tả gốc GĐ1–6), [`docs/spec-nhan-vat.md`](docs/spec-nhan-vat.md) (bổ sung nhân vật – GĐ2/3).

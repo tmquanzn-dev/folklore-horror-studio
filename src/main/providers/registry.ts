@@ -6,7 +6,9 @@
 import { MockLlmProvider } from '../llm/mockLlm'
 import { OpenAiLlmProvider } from '../llm/openaiLlm'
 import { GeminiImageProvider } from './image/gemini'
-import type { ImageProvider, LlmProvider, TtsProvider, VideoProvider } from './interfaces'
+import type { ImageProvider, LlmProvider, Transcriber, TtsProvider, VideoProvider } from './interfaces'
+import { MockTranscriber } from './stt/mockTranscriber'
+import { WhisperTranscriber } from './stt/whisper'
 import { MockVideoProvider } from './video/mockVideo'
 import { VeoVideoProvider } from './video/veo'
 import { MockImageProvider } from './mock/mockImage'
@@ -25,6 +27,8 @@ export interface ProviderRegistry {
   video(providerId?: string): VideoProvider & { clipSeconds: number }
   defaultVideoProvider(): string
   isMock(): boolean
+  /** Chép lời giọng tự thu: Mock khi bật Mock, Whisper khi tắt */
+  stt(): Transcriber
 }
 
 export const TTS_PROVIDER_IDS = ['mock', 'elevenlabs', 'openai'] as const
@@ -46,9 +50,12 @@ export function createProviderRegistry(opts: {
   const gemini = new GeminiImageProvider(() => opts.getKey('gemini'))
   const mockVideo = opts.overrides?.video ?? new MockVideoProvider()
   const veo = new VeoVideoProvider(() => opts.getKey('gemini'))
+  const mockStt = new MockTranscriber()
+  const whisper = new WhisperTranscriber(() => opts.getKey('openai'), f)
 
   return {
     isMock: opts.isMock,
+    stt: () => (opts.isMock() ? mockStt : whisper),
     llm: () => (opts.isMock() ? mockLlm : openaiLlm),
     tts: (providerId) => {
       if (opts.isMock() || providerId === 'mock') return mockTts

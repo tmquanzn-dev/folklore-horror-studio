@@ -3,7 +3,17 @@
  * - Bắt đầu ở đầu một câu, kết thúc ở cuối một câu (không cắt giữa câu).
  * - Không lấy cold open/outro/giải thích; ưu tiên đoạn căng (tổng cường độ cao)
  *   và KẾT THÚC Ở CÂU CĂNG (treo lửng) để người xem muốn xem bản dài.
+ * - KHÔNG lộ cao trào: người gọi loại các câu thuộc beat cao trào trở về sau (spoilerBeatIds)
+ *   ⇒ teaser dừng ngay trước cao trào.
  */
+
+/** Beat cao trào (cường độ lớn nhất, nếu bằng nhau lấy beat đầu tiên) và mọi beat sau nó */
+export function spoilerBeatIds(beats: { id: string; order: number; emotionalIntensity: number }[]): Set<string> {
+  const ordered = [...beats].sort((a, b) => a.order - b.order)
+  if (ordered.length === 0) return new Set()
+  const climax = ordered.reduce((best, b, i) => (b.emotionalIntensity > ordered[best].emotionalIntensity ? i : best), 0)
+  return new Set(ordered.slice(climax).map((b) => b.id))
+}
 export interface TeaserLine {
   id: string
   start: number
@@ -36,7 +46,7 @@ export function selectTeaserWindow(
       const seg = usable.slice(i, j + 1)
       const avg = seg.reduce((s, l) => s + beatIntensity(l.beatId), 0) / seg.length
       const endTension = beatIntensity(usable[j].beatId)
-      // Kết ở câu căng được thưởng; kết ở beat cao trào cuối cùng (đã "giải quyết") bị trừ nhẹ
+      // Kết ở câu căng được thưởng (treo lửng); đoạn dài hơn được cộng nhẹ
       const score = avg * 2 + endTension + (len - opts.minSec) / (opts.maxSec - opts.minSec) * 0.2
       if (!best || score > best.score) best = { start: usable[i].start, end: usable[j].end, lineIds: seg.map((l) => l.id), score: Math.round(score * 1000) / 1000 }
     }

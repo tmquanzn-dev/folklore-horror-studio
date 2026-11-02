@@ -2,6 +2,7 @@
  * Quản lý utility process render (khởi động lười, giữ sống để dùng lại bundle Remotion đã build).
  */
 import { randomUUID } from 'node:crypto'
+import fs from 'node:fs'
 import { utilityProcess, type UtilityProcess } from 'electron'
 import { logger } from '../logger'
 import type { RenderProgress, RenderRequest, VideoRenderer, WorkerInbound, WorkerOutbound } from './protocol'
@@ -16,11 +17,18 @@ export class RenderService implements VideoRenderer {
   private child: UtilityProcess | null = null
   private pending = new Map<string, Pending>()
 
-  constructor(private readonly workerPath: string) {}
+  constructor(
+    private readonly workerPath: string,
+    /** Thư mục làm việc của tiến trình render (bản cài đặt: <userData>/render) */
+    private readonly cwd?: string
+  ) {
+    if (cwd) fs.mkdirSync(cwd, { recursive: true })
+  }
 
   private ensureChild(): UtilityProcess {
     if (this.child) return this.child
-    const child = utilityProcess.fork(this.workerPath, [], { serviceName: 'Folklore Render', stdio: 'pipe' })
+    // cwd = thư mục ghi được: Remotion tải Chrome Headless Shell vào <cwd>/.remotion (bản cài đặt không ghi được vào Program Files)
+    const child = utilityProcess.fork(this.workerPath, [], { serviceName: 'Folklore Render', stdio: 'pipe', cwd: this.cwd })
     child.stdout?.on('data', (d: Buffer) => logger.info(d.toString('utf8').trim(), 'render'))
     child.stderr?.on('data', (d: Buffer) => logger.warn(d.toString('utf8').trim(), 'render'))
     child.on('message', (msg: WorkerOutbound) => {

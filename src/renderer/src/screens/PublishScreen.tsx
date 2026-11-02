@@ -12,6 +12,7 @@ import { Area, AsyncButton, ListText, Text } from '../components/forms'
 import { Empty, LangBadge, Panel, PlatformBadge } from '../components/ui'
 import { formatBytes, formatTime, formatUsd } from '../lib/format'
 import { useMediaUrl } from '../lib/preview'
+import { EditExportPanel } from './publish/EditExportPanel'
 import { useApp, useCurrentRelease, useCurrentStory, useMockMode } from '../store/appStore'
 
 /** Sao chép vào clipboard + toast */
@@ -102,6 +103,8 @@ export function PublishScreen(): JSX.Element {
           </ul>
         )}
       </Panel>
+
+      <EditExportPanel release={release} />
 
       <Panel title="Preset render">
         <div className="flex flex-wrap gap-2">

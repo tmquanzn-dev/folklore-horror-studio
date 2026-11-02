@@ -52,6 +52,16 @@ describe('chọn cảnh hero theo heroRatio', () => {
     expect(selectHeroScenes(scenes, intensity, 0.2)).toEqual(['a', 'h'])
     expect(selectHeroScenes(scenes, intensity, 0.3)).toEqual(['a', 'e', 'h'])
   })
+
+  it('tránh 2 cảnh hero liền nhau (2 clip AI liền nhau vi phạm luật đa dạng) khi còn lựa chọn', () => {
+    // Cao trào kéo dài 3 cảnh liền nhau g, h, i
+    const scenes = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((id, i) => ({ id, beatId: i >= 6 && i <= 8 ? 'climax' : 'calm' }))
+    const intensity = (b: string): number => (b === 'climax' ? 1 : 0.3)
+    const picked = selectHeroScenes(scenes, intensity, 0.3)
+    expect(picked).toEqual(['a', 'g', 'i'])
+    // Không đủ chỗ ⇒ vẫn đủ số lượng (lượt 2 lấp)
+    expect(selectHeroScenes(scenes.slice(0, 2), intensity, 1)).toEqual(['a', 'b'])
+  })
 })
 
 describe('phụ đề', () => {

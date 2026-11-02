@@ -180,10 +180,21 @@ export interface Transcript {
   cost: number
 }
 
+export interface TranscribeOptions {
+  signal?: AbortSignal
+  /** Gợi ý chính tả cho Whisper (tên riêng, thuật ngữ) – tối đa ~200 từ */
+  prompt?: string
+  /** Văn bản kỳ vọng (kịch bản) – chỉ bộ chép lời Mock dùng để giả lập */
+  expectedText?: string
+  /** Văn bản kỳ vọng theo từng câu – Mock dùng để đặt mỗi câu vào đúng đoạn có tiếng khi số đoạn = số câu */
+  expectedLines?: string[]
+}
+
 export interface Transcriber {
   readonly id: string
   readonly model: string
-  transcribe(audioPath: string, language: Language, signal?: AbortSignal): Promise<Transcript>
+  estimateCost(durationSec: number): number
+  transcribe(audioPath: string, language: Language, opts?: TranscribeOptions): Promise<Transcript>
 }
 
 // ---------------------------------------------------------------------------

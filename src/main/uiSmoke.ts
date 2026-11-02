@@ -25,6 +25,37 @@ export async function runUiSmoke(win: BrowserWindow, outDir: string): Promise<vo
     await js(`window.__fhsStore.getState().selectStory(${JSON.stringify(storyId)})`)
     await wait(800)
   }
+  // Tuỳ chọn (kiểm tra bản cài đặt): render lại 1 release qua IPC thật (bước 21–23) + xuất FCPXML/SRT
+  const renderRid = process.env['FHS_UI_SMOKE_RENDER']
+  const renderReport: Record<string, unknown> = {}
+  if (renderRid) {
+    const t0 = Date.now()
+    const r = (await js(`(async () => {
+      const st = window.__fhsStore.getState()
+      const sid = st.currentStoryId
+      try {
+        await window.api.invoke('pipeline:resetFrom', sid, ${JSON.stringify(renderRid)}, 21)
+        await window.api.invoke('pipeline:start', sid, ${JSON.stringify(renderRid)}, 'fullAuto')
+        for (let i = 0; i < 600; i++) {
+          await new Promise((r) => setTimeout(r, 1000))
+          const b = await window.api.invoke('story:get', sid)
+          const rel = b.releases.find((x) => x.id === ${JSON.stringify(renderRid)})
+          const ps = rel.pipelineState
+          const failed = Object.entries(ps.steps).find(([, v]) => v.status === 'failed')
+          if (failed) return { ok: false, error: 'Bước ' + failed[0] + ': ' + failed[1].error }
+          if (!ps.running && [21, 22, 23].every((n) => ['done', 'skipped'].includes(ps.steps[n].status))) {
+            const files = await window.api.invoke('exports:list', sid, rel.id)
+            const fx = await window.api.invoke('export:fcpxml', sid, rel.id)
+            return { ok: true, step21: ps.steps[21].message, mp4: files.map((f) => f.name + ' ' + f.sizeBytes), fcpxml: fx.files }
+          }
+        }
+        return { ok: false, error: 'timeout' }
+      } catch (e) { return { ok: false, error: String(e) } }
+    })()`)) as Record<string, unknown>
+    Object.assign(renderReport, r, { seconds: Math.round((Date.now() - t0) / 1000) })
+    logger.info(`UI smoke render: ${JSON.stringify(renderReport)}`)
+  }
+
   // Tuỳ chọn: thao tác thật qua IPC (tạo ảnh nhân vật / ảnh cảnh) để kiểm tra trọn luồng hàng đợi → giao diện
   const gen = process.env['FHS_UI_SMOKE_GEN']
   if (gen) {
@@ -70,7 +101,7 @@ export async function runUiSmoke(win: BrowserWindow, outDir: string): Promise<vo
       }
     }
   }
-  const report = { screens: shots.length, errors }
+  const report = { screens: shots.length, errors, render: renderRid ? renderReport : undefined }
   await fs.writeFile(path.join(outDir, 'report.json'), JSON.stringify(report, null, 2))
   logger.info(`UI smoke: ${shots.length} ảnh, ${errors.length} lỗi console`)
   app.quit()

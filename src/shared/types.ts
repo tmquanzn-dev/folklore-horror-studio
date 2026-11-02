@@ -423,6 +423,10 @@ export interface ScriptLine {
   end: number | null
   glossaryTermIds: string[]
   approval: Approval
+  /** Mốc từng từ thật (giọng tự thu căn bằng Whisper) – phụ đề dùng thay cho mốc ước lượng */
+  wordTimings?: { word: string; start: number; end: number }[] | null
+  /** Độ khớp câu với bản chép lời (0..1) – thấp ⇒ cần nghe lại */
+  alignConfidence?: number | null
 }
 
 export interface Script {
@@ -654,8 +658,47 @@ export interface Release {
   publishing: PublishingPackage | null
   costs: CostLedger
   pipelineState: PipelineState | null
+  /** Lần render MP4 gần nhất – fingerprint dùng để phát hiện bản render đã cũ */
+  lastRender?: RenderRecord | null
+  /** Nguồn giọng: TTS từng câu (mặc định) hoặc file tự thu cả bài */
+  voiceSource?: 'tts' | 'recorded'
+  recording?: Recording | null
   createdAt: string
   updatedAt: string
+}
+
+/** File giọng tự thu (cả bài) + bản chép lời Whisper để căn mốc */
+export interface Recording {
+  /** Bản sao trong thư mục Release, tương đối so với thư mục Story */
+  path: string
+  originalName: string
+  importedAt: string
+  duration: number
+  /** sha1 nội dung file – đổi file ⇒ phải chép lời lại */
+  hash: string
+  transcript: RecordingTranscript | null
+  /** Tỉ lệ từ kịch bản khớp được */
+  coverage: number | null
+  extraWords: number | null
+}
+
+export interface RecordingTranscript {
+  provider: string
+  model: string
+  language: string
+  text: string
+  words: { word: string; start: number; end: number }[]
+  /** hash của file đã chép lời */
+  forHash: string
+  cost: number
+  createdAt: string
+}
+
+export interface RenderRecord {
+  /** Tương đối so với thư mục Story */
+  path: string
+  fingerprint: string
+  renderedAt: string
 }
 
 // ============================================================================

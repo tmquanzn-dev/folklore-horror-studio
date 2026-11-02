@@ -61,11 +61,25 @@ export function RunPanel({ release }: { release: Release }): JSX.Element {
       <div>
         <div className="panel-title mb-2">Nguồn giọng</div>
         <div className="flex gap-2">
-          <span className="chip border-night-500 bg-night-700/50 text-slate-100">TTS (Mock)</span>
-          <span className="chip opacity-50" title="Tự thu âm + Whisper – Giai đoạn 6">
-            Tự thu – GĐ6
-          </span>
+          {(['tts', 'recorded'] as const).map((src) => {
+            const on = (release.voiceSource ?? 'tts') === src
+            return (
+              <button
+                key={src}
+                disabled={running}
+                className={`chip ${on ? 'border-night-500 bg-night-700/50 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
+                onClick={() => void runAction(() => window.api.invoke('recording:setSource', release.storyId, release.id, src))}
+              >
+                {src === 'tts' ? `TTS${mock ? ' (Mock)' : ''}` : 'Tự thu + Whisper'}
+              </button>
+            )
+          })}
         </div>
+        {release.voiceSource === 'recorded' ? (
+          <p className="mt-1 text-[11px] text-slate-500">
+            {release.recording ? `File: ${release.recording.originalName}` : 'Chưa có file – nhập ở Voice Studio.'} Bước 11 chép lời + căn mốc, bước 12 dùng file tự thu.
+          </p>
+        ) : null}
       </div>
 
       <div>

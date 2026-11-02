@@ -1,0 +1,110 @@
+{
+  "_note": "Model id, endpoint, đơn giá (USD, giá tham khảo – hãy kiểm tra lại trên trang của provider), rate limit, audio tag hợp lệ. Sửa ở đây, không sửa trong code.",
+  "tts": {
+    "mock": {
+      "displayName": "Mock TTS (ffmpeg, offline)",
+      "model": "mock-tone-v1",
+      "commercialLicense": true,
+      "pricePer1kChars": 0,
+      "unitsPerSecond": { "en": 2.85, "vi": 3.4 },
+      "commaPauseSec": 0.18,
+      "stopPauseSec": 0.3,
+      "minSec": 0.8,
+      "toneHz": { "en": 174, "vi": 196 },
+      "volume": 0.08,
+      "syllableRateHz": 4.2
+    },
+    "elevenlabs": {
+      "displayName": "ElevenLabs",
+      "model": "eleven_v3",
+      "endpoint": "https://api.elevenlabs.io/v1/text-to-speech",
+      "outputFormat": "mp3_44100_128",
+      "sendLanguageCode": false,
+      "defaultVoiceSettings": { "stability": 0.5, "similarity_boost": 0.75, "style": 0, "use_speaker_boost": true },
+      "commercialLicense": false,
+      "pricePer1kChars": 0.3,
+      "maxConcurrency": 4,
+      "rateLimitPerMinute": 120,
+      "timeoutMs": 90000,
+      "languages": ["en", "vi"],
+      "audioTags": ["whispers", "sighs", "nervous", "softly", "slowly", "fearful", "calm", "tense", "breathes", "gasps", "trembling", "pause", "laughs", "crying", "excited"]
+    },
+    "openai": {
+      "displayName": "OpenAI TTS",
+      "model": "gpt-4o-mini-tts",
+      "endpoint": "https://api.openai.com/v1/audio/speech",
+      "voices": ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"],
+      "commercialLicense": false,
+      "pricePer1kChars": 0.015,
+      "maxConcurrency": 6,
+      "rateLimitPerMinute": 500,
+      "timeoutMs": 90000,
+      "languages": ["en", "vi"]
+    }
+  },
+  "llm": {
+    "mock": {
+      "displayName": "Mock LLM (offline, mẫu cố định)",
+      "model": "mock-llm-v1",
+      "pricePer1kInputTokens": 0,
+      "pricePer1kOutputTokens": 0,
+      "maxRetriesOnSchemaError": 0
+    },
+    "openai": {
+      "displayName": "OpenAI",
+      "model": "gpt-4.1-mini",
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "pricePer1kInputTokens": 0.0004,
+      "pricePer1kOutputTokens": 0.0016,
+      "maxRetriesOnSchemaError": 2,
+      "temperature": 0.8,
+      "timeoutMs": 180000
+    }
+  },
+  "image": {
+    "mock": { "displayName": "Ảnh placeholder (sharp)", "model": "placeholder-v1", "models": ["placeholder-v1"], "pricePerImage": 0, "maxConcurrency": 20 },
+    "gemini": {
+      "displayName": "Google Gemini image (Nano Banana)",
+      "model": "gemini-2.5-flash-image",
+      "models": ["gemini-2.5-flash-image"],
+      "pricePerImage": 0.039,
+      "maxConcurrency": 10,
+      "rateLimitPerMinute": 60,
+      "timeoutMs": 120000,
+      "maxReferenceImages": 4
+    }
+  },
+  "video": {
+    "mock": { "displayName": "Mock image-to-video (ffmpeg)", "model": "mock-i2v", "pricePerSecond": 0, "clipSeconds": 5, "maxConcurrency": 4 },
+    "veo": {
+      "displayName": "Google Veo (image-to-video)",
+      "model": "veo-3.0-fast-generate-001",
+      "pricePerSecond": 0.15,
+      "clipSeconds": 8,
+      "resolution": "720p",
+      "generateAudio": false,
+      "maxConcurrency": 2,
+      "pollIntervalMs": 10000,
+      "timeoutMs": 600000
+    }
+  },
+  "depth": {
+    "_note": "Model ước lượng độ sâu cho parallax 2.5D (chạy local bằng onnxruntime-node). Đổi model: sửa file + kích thước + mean/std.",
+    "modelFile": "depth-anything-v2-small-q.onnx",
+    "downloadUrl": "https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx/model_quantized.onnx",
+    "inputSize": 518,
+    "mean": [0.485, 0.456, 0.406],
+    "std": [0.229, 0.224, 0.225],
+    "higherIsNearer": true
+  },
+  "stt": {
+    "openai": { "displayName": "OpenAI Whisper", "model": "whisper-1", "pricePerMinute": 0.006 }
+  },
+  "queue": {
+    "defaultConcurrency": 4,
+    "maxConcurrency": 20,
+    "maxAttempts": 4,
+    "backoffBaseMs": 800,
+    "backoffMaxMs": 30000
+  }
+}

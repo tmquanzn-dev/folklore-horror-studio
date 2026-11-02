@@ -1,0 +1,109 @@
+{
+  "_note": "Preset theo nền tảng: kích thước khung, thời lượng, tỷ lệ cảnh hero, cấu trúc kịch bản, phụ đề, render.",
+  "fps": 30,
+  "aspectSizes": {
+    "16:9": { "width": 1920, "height": 1080 },
+    "9:16": { "width": 1080, "height": 1920 }
+  },
+  "verticalFraming": {
+    "cropAspect": 0.8,
+    "backgroundBlur": 28,
+    "backgroundBrightness": 0.4
+  },
+  "sceneTiming": { "minSec": 3, "targetSec": 5, "maxSec": 8, "cutLeadSec": 0.2 },
+  "voiceAssembly": { "leadInSec": 0.4, "tailSec": 1.6 },
+  "parallax": { "layerFactors": [0.2, 0.55, 1.0], "nearPercentile": 0.78, "midPercentile": 0.5, "edgeSoftness": 0.05, "maxDimension": 1920 },
+  "audio": {
+    "truePeakDb": -1.5,
+    "lra": 11,
+    "sampleRate": 48000,
+    "defaultVolume": { "ambience": 0.35, "music": 0.22, "sfx": 0.8, "stinger": 0.9 },
+    "duck": { "thresholdDb": -30, "ratio": 8, "attackMs": 20, "releaseMs": 450 },
+    "silenceBeforeClimaxSec": 0.9
+  },
+  "publishing": {
+    "shorts": { "minSec": 30, "maxSec": 58, "hookCardSec": 3, "endCardSec": 3 },
+    "thumbnail": { "youtube": { "width": 1280, "height": 720 }, "cover": { "width": 1080, "height": 1920 } },
+    "performanceDefaults": { "minViews": 10000, "minAvgWatchPercent": 40 }
+  },
+  "series": { "hookSec": 3, "cliffhangerSec": 5, "toleranceRatio": 0.15, "minLastPartRatio": 0.45 },
+  "platforms": {
+    "youtube": {
+      "label": "YouTube",
+      "aspectRatio": "16:9",
+      "targetDurationSec": { "min": 900, "max": 2400 },
+      "heroRatio": 0.05,
+      "structure": ["coldOpen", "context", "story", "folkloreExplainer", "outro"],
+      "chapters": true,
+      "partDurationSec": null,
+      "narratorSections": ["context", "folkloreExplainer", "outro"]
+    },
+    "tiktok": {
+      "label": "TikTok",
+      "aspectRatio": "9:16",
+      "targetDurationSec": { "min": 60, "max": 100 },
+      "heroRatio": 0.15,
+      "structure": ["hook", "story", "cliffhanger"],
+      "chapters": false,
+      "partDurationSec": 90,
+      "narratorSections": []
+    },
+    "youtubeShorts": {
+      "label": "YouTube Shorts",
+      "aspectRatio": "9:16",
+      "targetDurationSec": { "min": 30, "max": 60 },
+      "heroRatio": 0.15,
+      "structure": ["hook", "story", "cliffhanger"],
+      "chapters": false,
+      "partDurationSec": 55,
+      "narratorSections": []
+    }
+  },
+  "subtitleStyles": {
+    "youtube": {
+      "id": "youtube",
+      "fontFamily": "\"Segoe UI\", Arial, sans-serif",
+      "fontSizeRatio": 0.024,
+      "fontWeight": 600,
+      "color": "#f4f1ea",
+      "highlightColor": "#f4f1ea",
+      "emphasisColor": "#f3c77a",
+      "strokeColor": "#000000",
+      "strokeWidthRatio": 0.0012,
+      "backgroundColor": "rgba(0,0,0,0.45)",
+      "verticalPosition": 0.88,
+      "horizontalCenter": 0.5,
+      "maxWidthRatio": 0.72,
+      "maxCharsPerCue": 70,
+      "maxWordsPerCue": 14,
+      "italicGlossary": true,
+      "wordHighlight": false,
+      "uppercase": false
+    },
+    "tiktok": {
+      "id": "tiktok",
+      "fontFamily": "\"Segoe UI Black\", \"Segoe UI\", Arial, sans-serif",
+      "fontSizeRatio": 0.064,
+      "fontWeight": 900,
+      "color": "#ffffff",
+      "highlightColor": "#ffd23f",
+      "emphasisColor": "#ffd23f",
+      "strokeColor": "#000000",
+      "strokeWidthRatio": 0.008,
+      "backgroundColor": null,
+      "verticalPosition": 0.62,
+      "horizontalCenter": 0.46,
+      "maxWidthRatio": 0.78,
+      "maxCharsPerCue": 22,
+      "maxWordsPerCue": 5,
+      "italicGlossary": false,
+      "wordHighlight": true,
+      "uppercase": false
+    }
+  },
+  "renderPresets": [
+    { "id": "draft", "label": "Bản nháp nhanh (50%)", "scale": 0.5 },
+    { "id": "full1080", "label": "1080p (YouTube 1920×1080 / TikTok 1080×1920)", "scale": 1 },
+    { "id": "uhd4k", "label": "4K (YouTube 3840×2160)", "scale": 2 }
+  ]
+}

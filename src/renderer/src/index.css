@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink-900 text-slate-200 antialiased;
+  font-family: 'Segoe UI', Inter, Arial, sans-serif;
+  font-size: 14px;
+}
+
+/* Thanh cuộn tối */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #0b0d14;
+}
+::-webkit-scrollbar-thumb {
+  background: #272d3f;
+  border-radius: 6px;
+  border: 2px solid #0b0d14;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #363d53;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-lg border border-ink-600 bg-ink-800;
+  }
+  .panel-title {
+    @apply text-xs font-semibold uppercase tracking-wider text-slate-400;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-blood-500 text-white hover:bg-blood-400;
+  }
+  .btn-secondary {
+    @apply btn border border-ink-500 bg-ink-700 text-slate-200 hover:bg-ink-600;
+  }
+  .btn-ghost {
+    @apply btn text-slate-300 hover:bg-ink-700;
+  }
+  .input {
+    @apply rounded-md border border-ink-500 bg-ink-900 px-2 py-1.5 text-sm text-slate-200 outline-none focus:border-night-400;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-ink-500 bg-ink-700 px-2 py-0.5 text-[11px] text-slate-300;
+  }
+}

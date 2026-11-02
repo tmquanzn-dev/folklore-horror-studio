@@ -3,11 +3,13 @@ import type { Beat, Story } from '../../../../shared/types'
 import { Area, AsyncButton, ListText } from '../../components/forms'
 import { Panel } from '../../components/ui'
 import { llmEstimateLabel } from '../../lib/estimate'
-import { useApp, useMockMode } from '../../store/appStore'
+import { beatEditConfirm, outlineRegenerateConfirm } from '../../lib/impactText'
+import { useApp, useMockMode, useReleases } from '../../store/appStore'
 
 /** Dàn ý theo beat: LLM tạo (bước 2) → sửa → ★ duyệt (bước 3) */
 export function OutlineEditor({ story }: { story: Story }): JSX.Element {
   const refresh = useApp((s) => s.refresh)
+  const releases = useReleases()
   const mock = useMockMode()
   const [beats, setBeats] = useState<Beat[]>(story.outline.beats)
   const [dirty, setDirty] = useState(false)
@@ -40,7 +42,7 @@ export function OutlineEditor({ story }: { story: Story }): JSX.Element {
         <>
           <AsyncButton
             className="btn-secondary text-xs"
-            confirm={story.outline.beats.length ? 'Tạo lại dàn ý sẽ thay dàn ý hiện tại (cần duyệt lại). Tiếp tục?' : undefined}
+            confirm={outlineRegenerateConfirm(story, releases)}
             onClick={async () => {
               await window.api.invoke('story:generateOutline', story.id)
               setDirty(false)
@@ -51,6 +53,7 @@ export function OutlineEditor({ story }: { story: Story }): JSX.Element {
           </AsyncButton>
           {dirty ? (
             <AsyncButton
+              confirm={beatEditConfirm(story, beats, releases)}
               className="btn-primary text-xs"
               onClick={async () => {
                 await window.api.invoke('story:update', story.id, { beats })

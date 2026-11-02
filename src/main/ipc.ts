@@ -10,6 +10,7 @@ import type { ImageService } from './services/imageService'
 import type { PublishService } from './services/publishService'
 import { RECORDING_EXTS, type RecordingService } from './services/recordingService'
 import type { ExportService } from './services/exportService'
+import type { PuppetService } from './services/puppetService'
 import type { MotionService } from './services/motionService'
 import type { SoundService } from './services/soundService'
 import type { DepthEstimator } from './media/depth'
@@ -90,6 +91,7 @@ export interface IpcDeps {
   publish: PublishService
   recording: RecordingService
   exporter: ExportService
+  puppet: PuppetService
   motion: MotionService
   sound: SoundService
   depth: DepthEstimator
@@ -230,6 +232,11 @@ export function registerIpc(deps: IpcDeps): void {
         rel.heroRatio = Math.min(1, Math.max(0, patch.heroRatio))
         resetStepsFrom(rel.pipelineState, 16)
       }
+      // GĐ7: bật/tắt cảnh rối ⇒ chọn lại cảnh từ bước 14
+      if (patch.puppetMaxRatio !== undefined && Math.abs(patch.puppetMaxRatio - (rel.puppetMaxRatio ?? -1)) > 1e-6) {
+        rel.puppetMaxRatio = Math.min(1, Math.max(0, patch.puppetMaxRatio))
+        resetStepsFrom(rel.pipelineState, 14)
+      }
     })
     return changed(storyId, r)
   })
@@ -357,6 +364,21 @@ export function registerIpc(deps: IpcDeps): void {
     return r.filePath
   })
 
+  // ------------------------------------------------------------ GĐ7: rối 2D
+  const notifyAllStories = async (): Promise<void> => {
+    for (const s of await repo.listStories()) deps.emitDataChanged(s.id)
+  }
+  handle('puppet:createMock', async (characterId) => {
+    const lib = await deps.puppet.createMockRig(characterId)
+    await notifyAllStories()
+    return lib
+  })
+  handle('puppet:remove', async (characterId) => {
+    const lib = await deps.puppet.removeRig(characterId)
+    await notifyAllStories()
+    return lib
+  })
+
   // ------------------------------------------------------------ GĐ6: giọng tự thu, xuất cho phần mềm dựng
   const { recording, exporter } = deps
   const pickDir = async (title: string, defaultPath: string): Promise<string | null> => {
@@ -451,6 +473,7 @@ export function registerIpc(deps: IpcDeps): void {
     const list = await repo.listStories()
     for (const s of list) for (const r of s.releases) if (runner.isRunning(s.id, r.id)) throw new Error('Hãy huỷ pipeline đang chạy trước')
     await repo.ensureSampleData(true)
+    await deps.puppet.ensureSampleRig()
     logger.info('Đã khôi phục dữ liệu mẫu (giữ lại media đã tạo làm cache)')
     for (const s of list) deps.emitDataChanged(s.id)
   })

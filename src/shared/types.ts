@@ -124,6 +124,8 @@ export interface ChannelPreset {
   defaultVoiceByLanguage: Record<Language, string>
   subtitleStyleByPlatform: Record<Platform, SubtitleStyle>
   platformDefaults: Record<Platform, PlatformDefaults>
+  /** GĐ7: bối cảnh mặc định cho cảnh người kể lên hình */
+  puppetStageId?: string | null
 }
 
 export interface FolkloreEntry {
@@ -207,6 +209,8 @@ export interface Character {
   /** Đã khoá ⇒ mọi ảnh sau dùng ảnh tham chiếu của nhân vật này (GĐ3) */
   locked: boolean
   approval: Approval
+  /** GĐ7: rối 2D của nhân vật (nếu có) */
+  puppetRigId?: string | null
 }
 
 /** Chuỗi xử lý giọng: lọc tần thấp → nén → EQ ấm → reverb nhẹ */
@@ -256,6 +260,89 @@ export interface Library {
   characters: Character[]
   voiceProfiles: VoiceProfile[]
   soundAssets: SoundAsset[]
+  /** GĐ7: rối 2D của nhân vật (lắp một lần, dùng lại mãi) */
+  puppetRigs: PuppetRig[]
+  /** GĐ7: bối cảnh cho cảnh rối (nền 16:9 + 9:16) */
+  puppetStages: PuppetStage[]
+}
+
+// ============================================================================
+// GĐ7 – NHÂN VẬT RỐI 2D (chớp mắt, khớp môi, thở) – xem docs/spec-gd7-puppet.md
+// ============================================================================
+
+/** 9 hình miệng chuẩn hoạt hình: X nghỉ · A môi khép (m,b,p) · B hé · C mở vừa (e,i) · D mở to (a) · E tròn hơi mở (ô,ơ) · F chu tròn (u,o) · G răng chạm môi (f,v) · H lưỡi (l,n,th) */
+export type MouthShape = 'X' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H'
+export const MOUTH_SHAPES: MouthShape[] = ['X', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+
+export interface MouthCue {
+  start: number
+  end: number
+  shape: MouthShape
+}
+
+export type EyeState = 'open' | 'half' | 'closed' | 'wide'
+
+/** Hình chữ nhật trong toạ độ pixel của canvas rối */
+export interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface PuppetExpression {
+  eyes: EyeState
+  /** Miệng nghiêng về hình này khi nói (vd thì thầm ⇒ B) */
+  mouthBias?: MouthShape
+  headTiltDeg?: number
+  /** Hệ số nhịp chớp mắt (lo sợ ⇒ chớp nhanh hơn) */
+  blinkRate?: number
+}
+
+export interface PuppetRig {
+  id: string
+  characterId: string
+  name: string
+  /** 'patch' = ảnh gốc + miếng vá mắt/miệng (cấp A); 'layered' = nhiều lớp có pivot (cấp B – GĐ7.2) */
+  level: 'patch' | 'layered'
+  canvas: { width: number; height: number }
+  /** Các đường dẫn tương đối thư mục dùng chung _characters */
+  basePath: string
+  regions: { eyes: Rect; mouth: Rect }
+  eyeSet: Record<'open' | 'half' | 'closed', string> & { wide?: string }
+  mouthSet: Record<MouthShape, string>
+  expressions: Record<string, PuppetExpression>
+  idle: { blinkMinSec: number; blinkMaxSec: number; breathAmp: number; swayDeg: number }
+  /** 'mock' = sinh bằng code (offline); 'manual' = người dùng nhập; 'ai' = tạo bằng AI (GĐ7.3) */
+  source: 'mock' | 'manual' | 'ai'
+  validated: boolean
+  version: number
+  createdAt: string
+}
+
+export interface PuppetStage {
+  id: string
+  name: string
+  backgroundPath: Record<AspectRatio, string>
+  /** Đường sàn (0..1 theo chiều cao khung) – chân/thân actor đặt lên đây */
+  floorY: number
+  lighting: 'lamp' | 'moon' | 'neutral'
+}
+
+export interface PuppetActor {
+  rigId: string
+  characterId: string
+  position: 'left' | 'center' | 'right'
+  scale: number
+  flipX: boolean
+  defaultExpression: string
+}
+
+export interface PuppetSceneSpec {
+  stageId: string
+  actors: PuppetActor[]
+  camera: 'static' | 'pushIn' | 'cutToSpeaker'
+  enter: 'none' | 'fade' | 'slideUp'
 }
 
 // ============================================================================
@@ -427,6 +514,8 @@ export interface ScriptLine {
   wordTimings?: { word: string; start: number; end: number }[] | null
   /** Độ khớp câu với bản chép lời (0..1) – thấp ⇒ cần nghe lại */
   alignConfidence?: number | null
+  /** GĐ7: hình miệng theo thời gian (giây tuyệt đối trên voice track) – chỉ câu của nhân vật có rối */
+  mouthCues?: MouthCue[] | null
 }
 
 export interface Script {
@@ -470,6 +559,9 @@ export interface ReleaseScene {
   motion: Motion
   transition: Transition
   isHero: boolean
+  /** GĐ7: 'puppet' = nhân vật rối diễn trên bối cảnh (không Ken Burns) – mặc định 'illustration' */
+  kind?: 'illustration' | 'puppet'
+  puppet?: PuppetSceneSpec | null
 }
 
 export interface Chapter {
@@ -662,6 +754,8 @@ export interface Release {
   lastRender?: RenderRecord | null
   /** Nguồn giọng: TTS từng câu (mặc định) hoặc file tự thu cả bài */
   voiceSource?: 'tts' | 'recorded'
+  /** GĐ7: tỉ lệ thời lượng tối đa dành cho cảnh rối (0 = tắt rối) */
+  puppetMaxRatio?: number
   recording?: Recording | null
   createdAt: string
   updatedAt: string

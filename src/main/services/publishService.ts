@@ -14,6 +14,7 @@ import { buildCompositionProps } from '../../shared/composition'
 import { platformsConfig } from '../../shared/config'
 import { buildCostReport, costCsv, type CostReport, type CostRow } from '../../shared/logic/business'
 import { aiDisclosureNeeded, buildChecklist, buildYoutubeDescription, normalizeHashtags, normalizeTags, type ChecklistFacts } from '../../shared/logic/publishing'
+import { CHARACTERS_FOLDER } from '../storage/storyRepo'
 import { selectTeaserWindow, spoilerBeatIds } from '../../shared/logic/shorts'
 import { resolveVoice } from '../../shared/logic/voices'
 import { buildMediaUrl, toRelPath } from '../../shared/media'
@@ -281,6 +282,8 @@ export class PublishService {
       glossary: lib.pronunciations.filter((p) => p.language === release.language),
       subtitleStyle: ch?.subtitleStyleByPlatform.youtubeShorts ?? platformsConfig.subtitleStyles.tiktok,
       mediaUrl: (rel, v) => buildMediaUrl(this.d.mediaBaseUrl, storyId, rel, v),
+      sharedUrl: (rel, v) => buildMediaUrl(this.d.mediaBaseUrl, CHARACTERS_FOLDER, rel, v),
+      puppetLib: lib,
       fps: platformsConfig.fps,
       sizes: platformsConfig.aspectSizes,
       aspect: '9:16',

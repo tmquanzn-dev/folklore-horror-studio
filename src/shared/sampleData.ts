@@ -287,7 +287,10 @@ export function createSampleLibrary(): Library {
     pronunciations: structuredClone(samplePronunciations),
     characters: structuredClone(sampleCharacters),
     voiceProfiles: structuredClone(sampleVoiceProfiles),
-    soundAssets: []
+    soundAssets: [],
+    // Rối Mock của người kể + bối cảnh đèn dầu được sinh ra lúc tạo dữ liệu mẫu (main/services/puppetService.ts)
+    puppetRigs: [],
+    puppetStages: []
   }
 }
 

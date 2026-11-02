@@ -4,7 +4,8 @@
  */
 import providersJson from '../config/providers.json'
 import platformsJson from '../config/platforms.json'
-import type { AspectRatio, Platform, PlatformDefaults, SubtitleStyle, SubtitleStyleId } from './types'
+import puppetJson from '../config/puppet.json'
+import type { AspectRatio, EyeState, MouthShape, Platform, PlatformDefaults, PuppetExpression, SubtitleStyle, SubtitleStyleId } from './types'
 
 export interface MockTtsConfig {
   displayName: string
@@ -135,3 +136,33 @@ export interface PlatformsConfig {
 
 export const providersConfig = providersJson as unknown as ProvidersConfig
 export const platformsConfig = platformsJson as unknown as PlatformsConfig
+
+/** GĐ7 – rối 2D: luật khớp môi, chớp mắt, biểu cảm theo delivery (src/config/puppet.json) */
+export interface PuppetConfig {
+  lipsync: {
+    algorithmVersion: number
+    minCueFrames: number
+    minClosedFrames: number
+    silenceGapMs: number
+    vi: {
+      initialShare: number
+      finalShare: number
+      initials: string[]
+      initialShape: Record<string, MouthShape>
+      defaultConsonant: MouthShape
+      vowelShape: Record<string, MouthShape>
+      closingFinals: string[]
+    }
+    en: { rules: [string, MouthShape][]; defaultShape: MouthShape; silentFinalE: boolean }
+    amplitude: { silenceDb: number; openDb: [number, number, number]; hysteresisDb: number; dropDb: number }
+    whisperDb: number
+  }
+  blink: { frames: EyeState[]; minSec: number; maxSec: number }
+  idle: { breathPeriodSec: number; swayPeriodSec: number }
+  deliveryExpression: Record<string, string>
+  defaultExpressions: Record<string, PuppetExpression>
+  puppetMaxRatio: number
+  maxContinuousSec: number
+}
+
+export const puppetConfig = puppetJson as unknown as PuppetConfig

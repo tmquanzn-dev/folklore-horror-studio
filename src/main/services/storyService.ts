@@ -9,6 +9,9 @@ import { platformsConfig } from '../../shared/config'
 import type { LibraryPatch, NewReleaseInput, NewStoryInput, StoryPatch } from '../../shared/ipc'
 import { checkBudget, formatUsdShort, storySpent } from '../../shared/logic/costEstimate'
 import { charactersForStory, suggestVoiceId } from '../../shared/logic/voices'
+import { applyCastRemap, beatEditImpact, clearSceneMedia, reachedStep, remapCast } from '../../shared/logic/invalidation'
+import { resetStepsFrom } from '../../shared/pipeline'
+import { CHANNEL_NARRATOR_ID } from '../../shared/sampleData'
 import { emptyLedger } from '../../shared/sampleData'
 import type { Library, Release, Story } from '../../shared/types'
 import { castTask, outlineTask, sceneBankTask, slug, toBeats, toCharacters, toSceneBank } from '../llm/tasks'
@@ -20,8 +23,35 @@ import { channelOf, estimateTaskCost, platformDefaultsOf } from './scriptService
 export class StoryService {
   constructor(
     private readonly repo: StoryRepository,
-    private readonly llm: () => LlmProvider
+    private readonly llm: () => LlmProvider,
+    /** Pipeline đang chạy? (app: hỏi PipelineRunner) */
+    private readonly isRunning: (storyId: string, releaseId: string) => boolean = () => false
   ) {}
+
+  /** Thay dữ liệu dùng chung khi pipeline đang chạy ⇒ release đang chạy dùng dữ liệu nửa cũ nửa mới */
+  private assertIdle(storyId: string, releases: Release[], what: string): void {
+    // Hỏi runner đang sống (không tin cờ running trên đĩa – app tắt đột ngột có thể để lại cờ cũ)
+    const busy = releases.find((r) => this.isRunning(storyId, r.id))
+    if (busy) throw new Error(`Bản "${busy.title}" đang chạy pipeline – hãy Huỷ ở AutoEdit trước khi ${what}`)
+  }
+
+  /**
+   * Đặt lại các bản phát hành sau khi dữ liệu dùng chung đổi: chạy mutate, rồi đưa các bước ≥ fromStep về "Chờ"
+   * (chỉ với release đã chạy tới bước đó). Trả về tên các release bị ảnh hưởng.
+   */
+  private async invalidateReleases(storyId: string, releases: Release[], fromStep: number, reason: string, mutate?: (r: Release) => boolean): Promise<string[]> {
+    const touched: string[] = []
+    for (const r of releases) {
+      let changed = false
+      await this.repo.updateRelease(storyId, r.id, (rel) => {
+        if (mutate?.(rel)) changed = true
+        if (reachedStep(rel, fromStep) && resetStepsFrom(rel.pipelineState, fromStep)) changed = true
+      })
+      if (changed) touched.push(r.title)
+    }
+    if (touched.length) logger.warn(`${reason} ⇒ ${touched.length} bản phát hành chạy lại từ bước ${fromStep}: ${touched.join(', ')}`, storyId)
+    return touched
+  }
 
   /** Ước tính chi phí + chặn khi vượt ngân sách Story; chạy LLM; ghi chi phí vào story.costs */
   private async runStoryLlm<T>(story: Story, req: LlmJsonRequest<T>, expectedOutputChars: number): Promise<T> {
@@ -77,7 +107,8 @@ export class StoryService {
   }
 
   async updateStory(storyId: string, patch: StoryPatch): Promise<Story> {
-    const story = await this.repo.loadStory(storyId)
+    const { story, releases } = await this.repo.loadBundle(storyId)
+    const oldBeats = story.outline.beats
     if (patch.name !== undefined) story.name = patch.name.trim() || story.name
     if (patch.premiseVi !== undefined) story.premiseVi = patch.premiseVi
     if (patch.fictionNoteVi !== undefined) story.fictionNoteVi = patch.fictionNoteVi
@@ -93,18 +124,46 @@ export class StoryService {
       story.outline.approval = { status: 'pending' }
     }
     if (patch.sceneBank !== undefined) story.sceneBank = patch.sceneBank
+    // Sửa beat ⇒ khớp cảnh / cảnh hero / chuyển động / âm thanh của release dựa trên beat phải tính lại
+    const impact = patch.beats !== undefined ? beatEditImpact(oldBeats, story.outline.beats, releases, story.sceneBank) : null
+    if (impact?.resetFrom != null) this.assertIdle(storyId, releases, 'sửa dàn ý')
     await this.repo.saveStory(story)
+    if (impact?.resetFrom != null) {
+      const what = impact.removed.length || impact.added.length || impact.reordered ? 'Thêm/xoá/đổi thứ tự beat' : 'Đổi cường độ cảm xúc beat'
+      await this.invalidateReleases(storyId, releases, impact.resetFrom, what)
+      if (impact.orphanLines) logger.warn(`${impact.orphanLines} câu kịch bản thuộc beat đã xoá – nên "Chuyển thể lại" ở Script Editor`, storyId)
+      if (impact.orphanScenes) logger.warn(`${impact.orphanScenes} cảnh trong ngân hàng thuộc beat đã xoá – sẽ không được gán`, storyId)
+      if (impact.added.length) logger.warn(`Beat mới ${impact.added.join(', ')} chưa có cảnh – đề xuất lại ngân hàng cảnh hoặc thêm cảnh`, storyId)
+    }
     return story
   }
 
+  /**
+   * Bước 2 – (tạo lại) dàn ý. Id beat tất định (b1…bn) ⇒ ngân hàng cảnh và kịch bản cũ vẫn "khớp id" nhưng sai nội dung
+   * ⇒ tạo lại dàn ý = bỏ ngân hàng cảnh + kịch bản/cảnh/giọng của mọi release (file media vẫn còn trên đĩa làm cache).
+   */
   async generateOutline(storyId: string): Promise<Story> {
-    const story = await this.repo.loadStory(storyId)
+    const { story, releases } = await this.repo.loadBundle(storyId)
+    this.assertIdle(storyId, releases, 'tạo lại dàn ý')
     const lib = await this.repo.loadLibrary()
     const folklore = lib.folklore.filter((f) => story.folkloreIds.includes(f.id))
     const out = await this.runStoryLlm(story, outlineTask(story, folklore), 4000)
+    const hadBank = story.sceneBank.length
     story.outline = { beats: toBeats(out), approval: { status: 'pending' } }
     story.fictionNoteVi = out.fictionNoteVi
+    story.sceneBank = []
     await this.repo.saveStory(story)
+    if (hadBank) logger.warn(`Dàn ý mới ⇒ bỏ ngân hàng cảnh cũ (${hadBank} cảnh) – duyệt dàn ý rồi đề xuất lại ngân hàng cảnh`, story.id)
+    await this.invalidateReleases(storyId, releases, 6, 'Dàn ý mới', (r) => {
+      if (!r.script.lines.length && !r.scenes.length) return false
+      r.script = { sections: [], lines: [] }
+      r.scenes = []
+      r.voiceTrack = null
+      r.subtitles = []
+      r.chapters = []
+      r.soundCues = []
+      return true
+    })
     logger.info(`Đã tạo dàn ý ${story.outline.beats.length} beat – chờ duyệt`, story.id)
     return story
   }
@@ -120,8 +179,9 @@ export class StoryService {
 
   /** 3a – LLM đề xuất dàn nhân vật; giữ nguyên nhân vật đã khoá, thay nhân vật chưa khoá */
   async proposeCast(storyId: string): Promise<{ story: Story; library: Library }> {
-    const story = await this.repo.loadStory(storyId)
+    const { story, releases } = await this.repo.loadBundle(storyId)
     if (story.outline.approval.status !== 'approved') throw new Error('Hãy duyệt dàn ý trước khi đề xuất nhân vật')
+    this.assertIdle(storyId, releases, 'đề xuất lại nhân vật')
     const lib = await this.repo.loadLibrary()
     const folklore = lib.folklore.filter((f) => story.folkloreIds.includes(f.id))
     const channelChars = lib.characters.filter((c) => c.scope === 'channel')
@@ -139,24 +199,54 @@ export class StoryService {
         logger.warn(`Chưa tìm được giọng phù hợp cho "${c.name}" – hãy chọn ở Voice Studio / màn Nhân vật`, story.id)
       }
     }
+    // Nhân vật cũ bị thay ⇒ ánh xạ sang nhân vật mới cùng vai (theo thứ tự); cảnh có cast đổi phải vẽ lại,
+    // câu thoại của nhân vật cũ chuyển sang nhân vật mới (không còn ai cùng vai ⇒ người kể đọc)
+    const removed = lib.characters.filter((c) => c.scope === 'story' && c.storyId === storyId && !c.locked)
+    const map = remapCast(removed, created)
+    const { bank, changedScenes } = applyCastRemap(story.sceneBank, map)
+    const redraw = new Set(changedScenes)
+    story.sceneBank = bank.map((s) => (redraw.has(s.id) ? clearSceneMedia(s) : s))
     lib.characters = [...keep, ...created]
     story.characterIds = charactersForStory(storyId, lib.characters).map((c) => c.id)
     await this.repo.saveLibrary(lib)
     await this.repo.saveStory(story)
+    if (map.size) {
+      for (const [from, to] of map) logger.info(`Nhân vật ${from} → ${to ?? 'người kể (không còn nhân vật cùng vai)'}`, story.id)
+      if (redraw.size) logger.warn(`${redraw.size} cảnh có nhân vật đổi ⇒ xoá ảnh cũ, tạo lại ở bước 6`, story.id)
+      const respeak = (r: Release): boolean => {
+        let changed = false
+        for (const l of r.script.lines) {
+          if (map.has(l.speakerId)) {
+            l.speakerId = map.get(l.speakerId) ?? CHANNEL_NARRATOR_ID
+            changed = true
+          }
+        }
+        return changed
+      }
+      // Cảnh vẽ lại ⇒ từ bước 6; chỉ đổi người nói ⇒ từ bước 11 (tạo giọng)
+      await this.invalidateReleases(storyId, releases, redraw.size ? 6 : 11, 'Đề xuất lại nhân vật', respeak)
+    }
     logger.info(`Đề xuất ${created.length} nhân vật (character sheet + duyệt/khoá ảnh – Giai đoạn 3)`, story.id)
     return { story, library: lib }
   }
 
   /** Bước 4 – LLM đề xuất ngân hàng cảnh theo beat (thay toàn bộ ngân hàng hiện có) */
   async proposeSceneBank(storyId: string): Promise<Story> {
-    const story = await this.repo.loadStory(storyId)
+    const { story, releases } = await this.repo.loadBundle(storyId)
     if (story.outline.approval.status !== 'approved') throw new Error('Hãy duyệt dàn ý trước khi đề xuất ngân hàng cảnh')
+    this.assertIdle(storyId, releases, 'đề xuất lại ngân hàng cảnh')
     const lib = await this.repo.loadLibrary()
     const chars = charactersForStory(storyId, lib.characters)
     const out = await this.runStoryLlm(story, sceneBankTask(story, chars, channelOf(lib, story)), 9000)
     story.sceneBank = toSceneBank(out)
     await this.repo.saveStory(story)
     logger.info(`Đề xuất ${story.sceneBank.length} cảnh – ảnh tạo ở bước 6 của pipeline Release`, story.id)
+    // Id cảnh tất định (s01…) ⇒ release cũ vẫn "trỏ được" nhưng tới cảnh KHÁC, chưa có ảnh ⇒ bỏ cảnh đã gán, chạy lại từ bước 6
+    await this.invalidateReleases(storyId, releases, 6, 'Ngân hàng cảnh mới', (r) => {
+      if (!r.scenes.length) return false
+      r.scenes = []
+      return true
+    })
     return story
   }
 

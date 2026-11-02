@@ -24,6 +24,7 @@ import { SoundService } from '../../src/main/services/soundService'
 import { PublishService } from '../../src/main/services/publishService'
 import { RecordingService } from '../../src/main/services/recordingService'
 import { ExportService } from '../../src/main/services/exportService'
+import { PuppetService } from '../../src/main/services/puppetService'
 import { StoryService } from '../../src/main/services/storyService'
 import { StoryRepository } from '../../src/main/storage/storyRepo'
 import { RELEASE_PIPELINE } from '../../src/shared/pipeline'
@@ -53,6 +54,7 @@ function makeRunner(p: ProviderRegistry): PipelineRunner {
     motion: new MotionService(repo, p, queue, new DepthEstimator(path.resolve('.smoke-output', 'models'))),
     sound: new SoundService(repo, p, () => path.join(ROOT, 'Âm thanh')),
     recording: new RecordingService(repo, p),
+    puppet: new PuppetService(repo),
     publish: new PublishService({ repo, providers: p, renderer: { render: renderVideo }, remotionEntry: path.resolve('src/remotion/index.ts'), mediaBaseUrl: server.baseUrl, getRenderScale: () => 0.5 }),
     renderer: { render: renderVideo },
     remotionEntry: path.resolve('src/remotion/index.ts'),
@@ -67,6 +69,7 @@ beforeAll(async () => {
   await fs.rm(ROOT, { recursive: true, force: true })
   repo = new StoryRepository(ROOT)
   await repo.ensureSampleData()
+  await new PuppetService(repo).ensureSampleRig()
   server = await startMediaServer(() => repo.storiesRoot)
   runner = makeRunner(providers)
   paidRunner = makeRunner(createProviderRegistry({ isMock: () => true, getKey: () => null, overrides: { video: new PaidMockVideo() } }))
@@ -153,6 +156,14 @@ describe('Pipeline end-to-end (Mock)', () => {
     const story = await repo.loadStory(SAMPLE_STORY_ID)
     const narratorScenes = rel.scenes.filter((s) => story.sceneBank.find((b) => b.id === s.sceneBankId)?.cast.some((c) => c.characterId === CHANNEL_NARRATOR_ID))
     expect(narratorScenes.length).toBeGreaterThanOrEqual(2)
+    // GĐ7.1: người kể có rối Mock ⇒ một phần cảnh người kể thành cảnh rối khớp môi (≤ 15% thời lượng)
+    const puppetScenes = rel.scenes.filter((s) => s.kind === 'puppet')
+    expect(puppetScenes.length).toBeGreaterThanOrEqual(1)
+    expect(puppetScenes.reduce((a, s) => a + s.end - s.start, 0)).toBeLessThanOrEqual(0.15 * (rel.voiceTrack?.duration ?? 0) + 0.01)
+    expect(puppetScenes.every((s) => !s.isHero && s.motion.level !== 'parallax')).toBe(true)
+    const narratorLines = rel.script.lines.filter((l) => l.speakerId === CHANNEL_NARRATOR_ID)
+    expect(narratorLines.every((l) => (l.mouthCues?.length ?? 0) > 0)).toBe(true)
+    console.log(`Cảnh rối: ${puppetScenes.map((s) => `${s.start.toFixed(1)}–${s.end.toFixed(1)}s`).join(', ')}`)
     // GĐ5 – bước 22: gói YouTube (mô tả có chapters + nguồn truyền thuyết), thumbnail 1280×720
     const pub = rel.publishing!
     expect(pub.youtube?.titleOptions.length).toBeGreaterThanOrEqual(3)

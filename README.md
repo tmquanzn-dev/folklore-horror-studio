@@ -1,4 +1,4 @@
-# Folklore Horror Studio – Giai đoạn 1–6
+# Folklore Horror Studio – Giai đoạn 1–6 + GĐ7.1
 
 Ứng dụng desktop (Windows 10/11) sản xuất video kể chuyện kinh dị dân gian Việt Nam & Đông Nam Á.
 Mô hình cốt lõi: **một Story → nhiều Release** (YouTube EN 16:9, TikTok VI 9:16, …).
@@ -313,8 +313,39 @@ npm run dist:dir    # bản chạy không cần cài: dist/win-unpacked/Folklore
 5. AutoEdit → chạy lại từ bước 11 ⇒ video dùng giọng tự thu, phụ đề chạy theo từng từ khớp lời đọc.
 6. `npm run dist` → cài file Setup → mở app từ Start Menu → render 1 video (lần đầu tải Chrome) → xuất FCPXML.
 
-## 11. Tiếp theo – GĐ7: Nhân vật rối 2D (puppet)
+## 11. Sửa lỗi sau khi chạy thử thật
 
-Đặc tả đầy đủ: [`docs/spec-gd7-puppet.md`](docs/spec-gd7-puppet.md) (chớp mắt, khớp môi 9 hình miệng, biểu cảm theo delivery, rig cấp A/B, màn "Rối nhân vật"; chia GĐ7.1 → 7.4). Cuối file có ghi chú kỹ thuật nối từ code hiện tại (mốc từ của giọng tự thu dùng lại được cho khớp môi, fingerprint render, luật đa dạng).
+- **Đề xuất lại dữ liệu dùng chung ⇒ bản phát hành tự đặt lại đúng bước.** Id do app sinh là tất định (beat `b1…`, cảnh `s01…`, nhân vật theo tên), nên sau khi đề xuất lại, release cũ vẫn "trỏ được" nhưng tới nội dung khác. Nay:
+  | Thao tác | Bản phát hành |
+  |---|---|
+  | Đề xuất lại ngân hàng cảnh | xoá cảnh đã gán, chạy lại từ bước 6 |
+  | Tạo lại dàn ý | bỏ ngân hàng cảnh; xoá kịch bản/giọng/cảnh; từ bước 6 |
+  | Sửa beat: thêm/xoá/đổi thứ tự | từ bước 14 (+ cảnh báo câu thuộc beat đã xoá) |
+  | Sửa beat: đổi cường độ | từ bước 16 |
+  | Đề xuất lại nhân vật | nhân vật mới cùng vai thế chỗ; cảnh có nhân vật đổi bị xoá ảnh; câu thoại đổi người nói; từ bước 6 (hoặc 11) |
+  Mọi thao tác trên bị chặn khi pipeline đang chạy và hỏi xác nhận kèm tác động cụ thể.
+- **Ảnh cảnh bị "mất" dù bước 6 báo xong.** Hàng đợi gộp 2 cảnh trùng prompt vào 1 job, và trúng cache của Story khác thì ghi ảnh vào Story cũ. Khoá cache nay gồm Story + cảnh; bước 6 kiểm tra lại trên đĩa và báo lỗi rõ "Cảnh #5, #6 chưa có ảnh (lý do)" thay vì "Xong".
+- **Bước 21 (render)** phân biệt: cảnh không còn trong ngân hàng (⇒ chạy lại từ bước 6) và cảnh còn nhưng chưa có ảnh (⇒ Storyboard → R); hiện số cảnh `#5` thay vì id, không lặp, không lặp "Cách xử lý".
 
-Tài liệu khác: [`docs/spec-goc.md`](docs/spec-goc.md) (đặc tả gốc GĐ1–6), [`docs/spec-nhan-vat.md`](docs/spec-nhan-vat.md) (bổ sung nhân vật – GĐ2/3).
+## 12. GĐ7.1 – Nhân vật rối 2D: chớp mắt, khớp môi, thở
+
+Đặc tả: [`docs/spec-gd7-puppet.md`](docs/spec-gd7-puppet.md). Đã làm **GĐ7.1**:
+- **Dữ liệu**: `PuppetRig` (cấp A – ảnh gốc + patch mắt/miệng), `PuppetStage`, `MouthCue`, `ReleaseScene.kind = 'puppet'`, `Character.puppetRigId`, `Release.puppetMaxRatio`; dữ liệu cũ nâng cấp tự động (không có rối ⇒ chạy như trước).
+- **Khớp môi** (`shared/logic/lipsync.ts`, luật trong `src/config/puppet.json`): tiếng Việt theo âm tiết (phụ âm đầu ~30%, nguyên âm, âm cuối m/p khép môi; bỏ dấu thanh, giữ dấu chữ), tiếng Anh theo cụm chữ dài nhất; mốc từ thật (giọng tự thu) hoặc ước lượng; âm lượng của voice track ép miệng khép khi im lặng và thu nhỏ khi nói nhỏ; thì thầm ⇒ chỉ hé; gộp cue < 2 khung, môi khép A giữ ≥ 2 khung. Không có chữ ⇒ theo âm lượng có trễ.
+- **Chớp mắt** tất định (seed = rối + cảnh), 2,2–5,5 s/lần, chuỗi nửa → nhắm → nhắm → nửa, không chớp giữa âm mở to kéo dài; biểu cảm theo tag delivery (thì thầm ⇒ lim dim, sợ ⇒ mở to + chớp nhanh).
+- **Remotion** (`src/remotion/PuppetScene.tsx`): bối cảnh + nhân vật thở/lắc nhẹ, camera đẩy chậm, đèn dầu chập chờn; ảnh mắt/miệng vẽ sẵn chồng nhau, đổi bằng opacity (không nháy). Xem trước (Player) và render dùng chung dữ liệu tính sẵn ⇒ giống hệt.
+- **Pipeline**: bước 12 tính hình miệng cho câu của nhân vật có rối; bước 14 biến cảnh người kể thành cảnh rối (≤ 15% thời lượng, không chuỗi rối > 12 s liền); bước 16–17 không gán video AI/parallax cho cảnh rối; `sources.json` ghi rối nào, nguồn Mock/AI/tự vẽ.
+- **Rối Mock** (`main/media/mockRig.ts`): vẽ bằng code (SVG → PNG), màu da/tóc/áo theo tuổi + giới tính; người kể mẫu (Bà Tư) có sẵn rối + bối cảnh "Góc nhà đèn dầu". Thực thể ma **không** có rối khớp môi (đúng đặc tả).
+- **Giao diện**: màn Nhân vật → mỗi nhân vật có khung "Rối 2D" (xem thử chớp mắt + 9 hình miệng, Tạo rối Mock / Tạo lại / Bỏ rối); AutoEdit → "Người kể lên hình (rối 2D)"; khung thuộc tính cảnh ghi rõ cảnh rối.
+
+Còn lại theo đặc tả: GĐ7.2 (màn "Rối nhân vật" – nhập PNG thủ công cấp A/B, tab Thử với Player), GĐ7.3 (tạo rối bằng AI từ ảnh nhân vật thật), GĐ7.4 (chế độ hội thoại 2 nhân vật, phản ứng người nghe, LLM đánh dấu đoạn người kể lên hình).
+
+### Checklist thủ công GĐ7.1
+1. Nhân vật & Giọng → "Bà Tư kể chuyện" → khung Rối 2D đang chớp mắt và lần lượt đổi 9 hình miệng.
+2. AutoEdit (bản YouTube mẫu) → "Người kể lên hình" đang bật → chạy lại từ bước 14 → cảnh người kể trên timeline ghi "Cảnh rối 2D"; xem trước thấy Bà Tư chớp mắt, miệng mở/khép theo lời, khép khi im lặng.
+3. Render ⇒ video giống bản xem trước. Tắt "Người kể lên hình" ⇒ cảnh đó quay về ảnh minh hoạ.
+4. Thử "Tạo rối Mock" cho một nhân vật truyện (Út Lan) – thực thể ma không có nút.
+
+## 13. Tài liệu
+
+[`docs/spec-goc.md`](docs/spec-goc.md) (đặc tả gốc GĐ1–6), [`docs/spec-nhan-vat.md`](docs/spec-nhan-vat.md) (bổ sung nhân vật), [`docs/spec-gd7-puppet.md`](docs/spec-gd7-puppet.md) (rối 2D – GĐ7).

@@ -68,6 +68,14 @@ export function ScenePanel({ story, release }: { story: Story; release: Release 
       <div>
         <div className="panel-title">Cảnh {release.scenes.indexOf(scene) + 1}</div>
         <div className="mt-1 text-slate-200">{bank?.description}</div>
+        {scene.kind === 'puppet' && scene.puppet ? (
+          <div className="mt-2 rounded border border-emerald-800 bg-emerald-950/30 p-2 text-xs text-emerald-200">
+            Cảnh rối 2D:{' '}
+            {scene.puppet.actors.map((a) => useApp.getState().library?.characters.find((c) => c.id === a.characterId)?.name ?? a.characterId).join(', ')} trên bối cảnh{' '}
+            {useApp.getState().library?.puppetStages.find((s) => s.id === scene.puppet?.stageId)?.name ?? scene.puppet.stageId} · chớp mắt, khớp môi, thở tự động · camera{' '}
+            {scene.puppet.camera === 'pushIn' ? 'đẩy chậm' : scene.puppet.camera}. Chuyển động Ken Burns bên dưới không áp cho cảnh này.
+          </div>
+        ) : null}
         <div className="mt-1 flex flex-wrap gap-1">
           <span className="chip">{bank ? SHOT_LABEL[bank.shotType] : '?'}</span>
           <span className="chip">{bank?.cameraAngle}</span>

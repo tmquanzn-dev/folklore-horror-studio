@@ -24,6 +24,7 @@ export function usePreviewProps(
   aspect: AspectRatio
 ): CompositionProps | null {
   const library = useApp((s) => s.library)
+  const base = useApp((s) => s.appInfo?.mediaBaseUrl ?? '')
   const mediaUrl = useMediaUrl(story?.id)
   return useMemo(() => {
     if (!story || !release || !library || release.scenes.length === 0) return null
@@ -37,7 +38,10 @@ export function usePreviewProps(
       fps: platformsConfig.fps,
       sizes: platformsConfig.aspectSizes,
       aspect,
-      parallaxFactors: platformsConfig.parallax.layerFactors
+      parallaxFactors: platformsConfig.parallax.layerFactors,
+      // GĐ7: rối + bối cảnh – cùng dữ liệu với lúc render
+      puppetLib: library,
+      sharedUrl: (rel, v) => buildMediaUrl(base, '_characters', rel, v)
     })
-  }, [story, release, library, mediaUrl, aspect])
+  }, [story, release, library, mediaUrl, aspect, base])
 }

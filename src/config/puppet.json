@@ -1,0 +1,58 @@
+{
+  "lipsync": {
+    "algorithmVersion": 1,
+    "minCueFrames": 2,
+    "minClosedFrames": 2,
+    "silenceGapMs": 120,
+    "vi": {
+      "initialShare": 0.3,
+      "finalShare": 0.25,
+      "initials": ["ngh", "ng", "nh", "ph", "th", "tr", "ch", "gh", "gi", "kh", "qu", "b", "c", "d", "đ", "g", "h", "k", "l", "m", "n", "p", "r", "s", "t", "v", "x"],
+      "initialShape": { "m": "A", "b": "A", "p": "A", "ph": "G", "v": "G", "l": "H", "n": "H", "đ": "H", "t": "H", "d": "H", "th": "H", "tr": "H", "nh": "H" },
+      "defaultConsonant": "B",
+      "vowelShape": { "a": "D", "ă": "D", "â": "D", "e": "C", "ê": "C", "i": "C", "y": "C", "o": "E", "ô": "E", "ơ": "E", "u": "F", "ư": "F" },
+      "closingFinals": ["m", "p"]
+    },
+    "en": {
+      "rules": [
+        ["oo", "F"], ["ou", "F"], ["ow", "F"], ["w", "F"], ["qu", "F"],
+        ["ee", "C"], ["ea", "C"], ["ie", "C"], ["ay", "C"], ["ai", "C"],
+        ["th", "H"], ["ph", "G"], ["sh", "B"], ["ch", "B"],
+        ["f", "G"], ["v", "G"],
+        ["m", "A"], ["b", "A"], ["p", "A"],
+        ["l", "H"], ["n", "H"], ["t", "H"], ["d", "H"],
+        ["a", "D"], ["o", "E"], ["u", "F"], ["e", "C"], ["i", "C"], ["y", "C"]
+      ],
+      "defaultShape": "B",
+      "silentFinalE": true
+    },
+    "amplitude": {
+      "silenceDb": -42,
+      "openDb": [-34, -26, -18],
+      "hysteresisDb": 3,
+      "dropDb": 9
+    },
+    "whisperDb": -26
+  },
+  "blink": { "frames": ["half", "closed", "closed", "half"], "minSec": 2.2, "maxSec": 5.5 },
+  "idle": { "breathPeriodSec": 3.6, "swayPeriodSec": 5.3 },
+  "deliveryExpression": {
+    "whispers": "whisper",
+    "nervous": "scared",
+    "scared": "scared",
+    "sighs": "sigh",
+    "laughs": "smile",
+    "tense": "grave",
+    "grave": "grave"
+  },
+  "defaultExpressions": {
+    "calm": { "eyes": "open" },
+    "grave": { "eyes": "half", "headTiltDeg": -2 },
+    "whisper": { "eyes": "half", "mouthBias": "B" },
+    "scared": { "eyes": "wide", "blinkRate": 1.8 },
+    "sigh": { "eyes": "half" },
+    "smile": { "eyes": "half" }
+  },
+  "puppetMaxRatio": 0.15,
+  "maxContinuousSec": 12
+}

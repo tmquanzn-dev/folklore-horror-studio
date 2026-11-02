@@ -28,7 +28,8 @@ export function migrateCharacter(c: Legacy<Character>, fallbackStoryId: string |
     states: c.states ?? [],
     voiceProfileIdByLanguage: c.voiceProfileIdByLanguage ?? {},
     locked: c.locked ?? false,
-    approval: c.approval ?? { status: 'pending' }
+    approval: c.approval ?? { status: 'pending' },
+    puppetRigId: c.puppetRigId ?? null
   }
 }
 
@@ -67,6 +68,9 @@ export function migrateStory(story: Story): Story {
 
 export function migrateLibrary(lib: Library): Library {
   lib.characters = lib.characters.map((c) => migrateCharacter(c as Legacy<Character>, null))
+  // GĐ7: chưa có rối ⇒ mọi thứ chạy như trước
+  lib.puppetRigs ??= []
+  lib.puppetStages ??= []
   for (const ch of lib.channelPresets) {
     for (const pd of Object.values(ch.platformDefaults)) pd.narratorSections ??= []
     ch.motionProfile.parallaxRatio ??= 0.3

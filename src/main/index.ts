@@ -21,6 +21,7 @@ import { MotionService } from './services/motionService'
 import { PublishService } from './services/publishService'
 import { RecordingService } from './services/recordingService'
 import { ExportService } from './services/exportService'
+import { PuppetService } from './services/puppetService'
 import { SoundService } from './services/soundService'
 import { DepthEstimator } from './media/depth'
 import { getSoundLibraryDir } from './settings'
@@ -85,6 +86,9 @@ async function bootstrap(): Promise<void> {
 
   const repo = new StoryRepository(getDataRoot())
   await repo.ensureSampleData()
+  // GĐ7: người kể mẫu có rối Mock (chớp mắt, khớp môi) – lỗi không chặn app khởi động
+  const puppet = new PuppetService(repo)
+  await puppet.ensureSampleRig().catch((e: unknown) => logger.warn(`Không tạo được rối mẫu: ${e instanceof Error ? e.message : String(e)}`, 'puppet'))
   logger.info(`Thư mục dữ liệu: ${repo.dataRoot}`)
 
   mediaServer = await startMediaServer(() => repo.storiesRoot)
@@ -166,6 +170,7 @@ async function bootstrap(): Promise<void> {
     sound,
     publish,
     recording,
+    puppet,
     renderer: renderService,
     remotionEntry,
     mediaBaseUrl: mediaServer.baseUrl,
@@ -180,12 +185,13 @@ async function bootstrap(): Promise<void> {
     repo,
     runner,
     providers,
-    stories: new StoryService(repo, () => providers.llm()),
+    stories: new StoryService(repo, () => providers.llm(), (sid, rid) => runner.isRunning(sid, rid)),
     voices: new VoiceService(repo, providers, path.join(repo.dataRoot, 'cache', 'previews')),
     images,
     publish,
     recording,
     exporter,
+    puppet,
     motion,
     sound,
     depth,

@@ -31,5 +31,7 @@ export function toVietnameseError(err: unknown): string {
     return 'API key không hợp lệ. Cách xử lý: nhập lại key trong màn Cài đặt.'
   if (/\b429\b|rate limit/i.test(raw)) return 'Provider đang giới hạn tốc độ (429). Cách xử lý: giảm số luồng hoặc đợi vài phút rồi chạy lại.'
   if (/Chưa triển khai/.test(raw)) return raw
+  // Thông báo đã kèm hướng dẫn (lỗi do app tự ném) ⇒ giữ nguyên, không ghép thêm câu "Cách xử lý" thứ hai
+  if (/Cách xử lý:|–\s*(AutoEdit|Storyboard|Voice Studio|Story|màn)\b/.test(raw)) return raw.replace(/^Error:\s*/, '')
   return `Lỗi: ${raw}. Cách xử lý: xem panel Nhật ký để biết chi tiết, sửa nguyên nhân rồi bấm "Bắt đầu" để chạy lại bước lỗi.`
 }

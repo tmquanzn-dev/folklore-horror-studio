@@ -8,6 +8,7 @@ import type { MotionService } from '../services/motionService'
 import type { SoundService } from '../services/soundService'
 import type { PublishService } from '../services/publishService'
 import type { RecordingService } from '../services/recordingService'
+import type { PuppetService } from '../services/puppetService'
 import type { RunMode } from '../../shared/types'
 import type { VideoRenderer } from '../render/protocol'
 import type { StoryRepository } from '../storage/storyRepo'
@@ -26,6 +27,8 @@ export interface PipelineDeps {
   publish: PublishService
   /** Giọng tự thu + chép lời / căn mốc */
   recording: RecordingService
+  /** GĐ7: rối 2D – hình miệng, rối Mock */
+  puppet: PuppetService
   renderer: VideoRenderer
   /** Đường dẫn tuyệt đối tới src/remotion/index.ts */
   remotionEntry: string

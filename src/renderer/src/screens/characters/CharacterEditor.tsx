@@ -5,6 +5,7 @@ import { playAudio } from '../../lib/audio'
 import { imageEstimateLabel } from '../../lib/estimate'
 import { useCharacterUrl } from '../../lib/preview'
 import { useApp, useMockMode } from '../../store/appStore'
+import { PuppetPanel } from './PuppetPanel'
 
 const SAMPLE: Record<Language, string> = {
   en: 'Come closer to the lamp… let me tell you what happened by the river.',
@@ -107,6 +108,8 @@ export function CharacterEditor({
           </div>
         ))}
       </div>
+
+      <PuppetPanel characterId={c.id} />
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         {(['vi', 'en'] as Language[]).map((lang) => {

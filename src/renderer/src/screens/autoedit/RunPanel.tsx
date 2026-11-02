@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { providersConfig } from '../../../../shared/config'
+import { providersConfig, puppetConfig } from '../../../../shared/config'
 import { isPipelineComplete, RELEASE_PIPELINE } from '../../../../shared/pipeline'
 import type { Release, RunMode } from '../../../../shared/types'
 import { Icon } from '../../components/Icon'
@@ -80,6 +80,26 @@ export function RunPanel({ release }: { release: Release }): JSX.Element {
             {release.recording ? `File: ${release.recording.originalName}` : 'Chưa có file – nhập ở Voice Studio.'} Bước 11 chép lời + căn mốc, bước 12 dùng file tự thu.
           </p>
         ) : null}
+      </div>
+
+      <div>
+        <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-200">
+          <input
+            type="checkbox"
+            className="mt-1 accent-blood-500"
+            disabled={running}
+            checked={(release.puppetMaxRatio ?? puppetConfig.puppetMaxRatio) > 0}
+            onChange={(e) =>
+              void runAction(() => window.api.invoke('release:update', release.storyId, release.id, { puppetMaxRatio: e.target.checked ? puppetConfig.puppetMaxRatio : 0 }))
+            }
+          />
+          <span>
+            Người kể lên hình (rối 2D)
+            <span className="block text-[11px] text-slate-500">
+              Cảnh người kể diễn bằng rối: chớp mắt, khớp môi, thở – tối đa {Math.round(puppetConfig.puppetMaxRatio * 100)}% thời lượng. Cần người kể có rối (màn Nhân vật). Đổi ⇒ chạy lại từ bước 14.
+            </span>
+          </span>
+        </label>
       </div>
 
       <div>

@@ -1,6 +1,7 @@
 import { AbsoluteFill, Img, interpolate, OffthreadVideo, Sequence, useCurrentFrame, useVideoConfig } from 'remotion'
 import type { CompositionScene } from '../shared/composition'
 import { kenBurnsAt, parallaxLayerAt, type KenBurnsFrame } from '../shared/logic/kenBurns'
+import { PuppetScene } from './PuppetScene'
 
 const clampOpts = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const
 
@@ -84,7 +85,9 @@ export const SceneLayer: React.FC<{ scene: CompositionScene; durationInFrames: n
           </AbsoluteFill>
         </Sequence>
       ) : null}
-      {stillOpacity > 0 ? (
+      {scene.puppet ? (
+        <PuppetScene puppet={scene.puppet} durationInFrames={durationInFrames} />
+      ) : stillOpacity > 0 ? (
         <AbsoluteFill style={{ opacity: stillOpacity }}>
           <Still scene={scene} t={t} factors={parallaxFactors} />
         </AbsoluteFill>

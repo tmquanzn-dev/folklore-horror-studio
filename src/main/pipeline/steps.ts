@@ -7,7 +7,9 @@ import path from 'node:path'
 import PQueue from 'p-queue'
 import { buildCompositionProps } from '../../shared/composition'
 import { renderFingerprint } from '../render/fingerprint'
-import { platformsConfig, providersConfig } from '../../shared/config'
+import { platformsConfig, providersConfig, puppetConfig } from '../../shared/config'
+import { selectPuppetScenes } from '../../shared/logic/lipsync'
+import { CHARACTERS_FOLDER } from '../storage/storyRepo'
 import { checkBudget, formatUsdShort, storySpent } from '../../shared/logic/costEstimate'
 import { selectHeroScenes } from '../../shared/logic/hero'
 import { assignMotions, assignTransitions, chooseParallaxScenes } from '../../shared/logic/motion'
@@ -18,7 +20,7 @@ import { computeLineTimings } from '../../shared/logic/timeline'
 import { charactersForStory, isChannelCharacter } from '../../shared/logic/voices'
 import { buildMediaUrl, toRelPath } from '../../shared/media'
 import type { StepKey } from '../../shared/pipeline'
-import type { ChannelPreset, MediaRef, Release } from '../../shared/types'
+import type { ChannelPreset, MediaRef, Release, SceneBankItem } from '../../shared/types'
 import { buildVerticalFrame } from '../media/verticalFrame'
 import { placeClips, readWav, sameFormat, wavDuration, writeWav, type WavData } from '../media/wav'
 import { toWav44kMono } from '../media/ffmpeg'
@@ -42,6 +44,9 @@ function beatIntensityFn(ctx: StepContext): (beatId: string) => number {
 // ---------------------------------------------------------------- Bước 6
 
 const bankImages: StepHandler = async (ctx) => {
+  if (ctx.story.sceneBank.length === 0) {
+    throw new Error('Story chưa có ngân hàng cảnh. Cách xử lý: màn Story → duyệt dàn ý → "Đề xuất ngân hàng cảnh", rồi chạy lại.')
+  }
   // Ảnh tạo qua hàng đợi job (song song, retry, cache, ngân sách) – xem Film Studio → Hàng chờ
   const res = await ctx.deps.images.ensureSceneImages(ctx.story.id, ctx.signal, (p, msg) => ctx.progress(p, msg))
   // Đọc lại story (job ảnh đã cập nhật story.json)
@@ -225,8 +230,9 @@ const assembleVoice: StepHandler = async (ctx) => {
     ctx.progress(0.2, 'Xử lý giọng tự thu')
     await ctx.deps.recording.buildRecordedTrackInto(story, release, library, ctx.signal)
     computeChapters(release)
+    const lip = await ctx.deps.puppet.computeMouthCuesInto(story, release, library)
     const d = release.voiceTrack?.duration ?? 0
-    return { status: 'done', message: `Voice track tự thu ${Math.floor(d / 60)}:${String(Math.round(d % 60)).padStart(2, '0')} (${lines.length} câu)` }
+    return { status: 'done', message: `Voice track tự thu ${Math.floor(d / 60)}:${String(Math.round(d % 60)).padStart(2, '0')} (${lines.length} câu)${lip ? ` · khớp môi ${lip} câu` : ''}` }
   }
   const wavs: WavData[] = []
   for (let i = 0; i < lines.length; i++) {
@@ -271,9 +277,11 @@ const assembleVoice: StepHandler = async (ctx) => {
   release.voiceTrack = { mode: 'tts', processedPath: rel, mixedPath: rel, duration: timing.totalDuration }
 
   computeChapters(release)
+  // GĐ7: hình miệng cho câu của nhân vật có rối (chữ → hình miệng + âm lượng giọng)
+  const lip = await ctx.deps.puppet.computeMouthCuesInto(story, release, library)
   const m = Math.floor(timing.totalDuration / 60)
   const s = Math.round(timing.totalDuration % 60)
-  return { status: 'done', message: `Voice track ${m}:${String(s).padStart(2, '0')} (${lines.length} câu)` }
+  return { status: 'done', message: `Voice track ${m}:${String(s).padStart(2, '0')} (${lines.length} câu)${lip ? ` · khớp môi ${lip} câu` : ''}` }
 }
 
 // ---------------------------------------------------------------- Bước 14
@@ -329,7 +337,35 @@ const matchScenesStep: StepHandler = async (ctx) => {
     )
   }
   const narratorScenes = release.scenes.filter((s) => bankById.get(s.sceneBankId)?.cast.some((m) => isChannelCharacter(m.characterId, storyChars))).length
-  return { status: 'done', message: `${scenes.length} cảnh (${narratorScenes} cảnh người kể), ${missing.length} gợi ý thiếu cảnh` }
+
+  // GĐ7: cảnh người kể mà người kể có rối ⇒ cảnh rối (chớp mắt, khớp môi) – tối đa puppetMaxRatio thời lượng,
+  // không chuỗi rối liền nhau quá maxContinuousSec. Thực thể ma không bao giờ là rối khớp môi.
+  const rigOf = (charId: string): string | null => {
+    const c = library.characters.find((x) => x.id === charId)
+    return c && c.role !== 'entity' && c.puppetRigId && library.puppetRigs.some((r) => r.id === c.puppetRigId) ? c.puppetRigId : null
+  }
+  const stageId = channelOf(ctx).puppetStageId ?? library.puppetStages[0]?.id ?? null
+  const actorOf = (sceneBankId: string): { characterId: string; rigId: string } | null => {
+    const cast = bankById.get(sceneBankId)?.cast ?? []
+    const m = cast.find((x) => isChannelCharacter(x.characterId, storyChars) && rigOf(x.characterId))
+    return m ? { characterId: m.characterId, rigId: rigOf(m.characterId) as string } : null
+  }
+  const ratio = release.puppetMaxRatio ?? puppetConfig.puppetMaxRatio
+  const picked = stageId
+    ? selectPuppetScenes(release.scenes.map((s) => ({ start: s.start, end: s.end, eligible: !!actorOf(s.sceneBankId) })), release.voiceTrack.duration, ratio, puppetConfig.maxContinuousSec)
+    : new Set<number>()
+  release.scenes.forEach((s, i) => {
+    const actor = picked.has(i) ? actorOf(s.sceneBankId) : null
+    s.kind = actor ? 'puppet' : 'illustration'
+    s.puppet = actor && stageId
+      ? { stageId, actors: [{ rigId: actor.rigId, characterId: actor.characterId, position: 'center', scale: 1, flipX: false, defaultExpression: 'calm' }], camera: 'pushIn', enter: 'fade' }
+      : null
+  })
+  const puppetCount = release.scenes.filter((s) => s.kind === 'puppet').length
+  return {
+    status: 'done',
+    message: `${scenes.length} cảnh (${narratorScenes} cảnh người kể${puppetCount ? `, ${puppetCount} cảnh rối khớp môi` : ''}), ${missing.length} gợi ý thiếu cảnh`
+  }
 }
 
 // ---------------------------------------------------------------- Bước 15
@@ -388,7 +424,8 @@ const heroScenes: StepHandler = async (ctx) => {
   const { story, release } = ctx
   const intensity = beatIntensityFn(ctx)
   const beatOf = (sceneBankId: string): string => story.sceneBank.find((b) => b.id === sceneBankId)?.beatId ?? ''
-  const ids = new Set(selectHeroScenes(release.scenes.map((s) => ({ id: s.id, beatId: beatOf(s.sceneBankId) })), intensity, release.heroRatio))
+  // Cảnh rối không làm video AI (nhân vật đã chuyển động)
+  const ids = new Set(selectHeroScenes(release.scenes.filter((s) => s.kind !== 'puppet').map((s) => ({ id: s.id, beatId: beatOf(s.sceneBankId) })), intensity, release.heroRatio))
   for (const s of release.scenes) s.isHero = ids.has(s.id)
   const heroBank = [...new Set(release.scenes.filter((s) => s.isHero).map((s) => s.sceneBankId))]
   if (heroBank.length === 0) return { status: 'done', message: `Không có cảnh hero (heroRatio ${Math.round(release.heroRatio * 100)}%)` }
@@ -439,7 +476,8 @@ const motion: StepHandler = async (ctx) => {
   // Mức 3: cảnh hero đã có clip đúng khung
   const ai = new Set(scenes.map((s, i) => (s.isHero && bankById.get(s.sceneBankId)?.heroClip[aspect] ? i : -1)).filter((i) => i >= 0))
   // Mức 2: chọn theo parallaxRatio, rồi tính lớp (cảnh lỗi ⇒ Ken Burns)
-  let parallax = chooseParallaxScenes(inputs, intensity, channel.motionProfile.parallaxRatio, ai)
+  const notParallax = new Set([...ai, ...scenes.map((s, i) => (s.kind === 'puppet' ? i : -1)).filter((i) => i >= 0)])
+  let parallax = chooseParallaxScenes(inputs, intensity, channel.motionProfile.parallaxRatio, notParallax)
   let heuristic = 0
   if (parallax.size > 0) {
     ctx.progress(0.05, `Tách lớp parallax ${parallax.size} cảnh…`)
@@ -508,7 +546,33 @@ const subtitles: StepHandler = async (ctx) => {
 
 // ---------------------------------------------------------------- Bước 21
 
+/**
+ * Chặn render với dữ liệu sai. Phân biệt 2 trường hợp vì cách sửa khác nhau:
+ * - cảnh trỏ tới id không còn trong ngân hàng ⇒ ngân hàng đã đổi ⇒ chạy lại từ bước 6
+ * - id còn nhưng chưa có ảnh ⇒ tạo lại ảnh cảnh đó ở Storyboard, rồi render lại
+ */
+function assertRenderable(ctx: StepContext): void {
+  const scenes = ctx.release.scenes
+  if (scenes.length === 0) throw new Error('Bản phát hành chưa có cảnh nào – AutoEdit → chạy lại từ bước 14 (Khớp cảnh)')
+  const index = new Map(ctx.story.sceneBank.map((b, i) => [b.id, { b, n: i + 1 }]))
+  const gone = [...new Set(scenes.filter((s) => !index.has(s.sceneBankId)).map((s) => s.sceneBankId))]
+  if (gone.length) {
+    throw new Error(`${gone.length} cảnh trên timeline không còn trong ngân hàng cảnh (ngân hàng đã đổi sau khi gán cảnh) – AutoEdit → chạy lại từ bước 6`)
+  }
+  const noImage = [...new Set(scenes.filter((s) => s.kind !== 'puppet').map((s) => s.sceneBankId))]
+    .map((id) => index.get(id) as { b: SceneBankItem; n: number })
+    .filter(({ b }) => !(b.media[ctx.release.aspectRatio] ?? b.media['16:9']))
+    .sort((a, b) => a.n - b.n)
+  if (noImage.length) {
+    const uses = scenes.filter((s) => noImage.some((x) => x.b.id === s.sceneBankId)).length
+    throw new Error(
+      `Cảnh ${noImage.map((x) => `#${x.n}`).join(', ')} chưa có ảnh (dùng ở ${uses} đoạn trên timeline) – Storyboard → chọn cảnh → R để tạo lại ảnh, rồi bấm Chạy lại bước 21`
+    )
+  }
+}
+
 const render: StepHandler = async (ctx) => {
+  assertRenderable(ctx)
   const channel = channelOf(ctx)
   const scale = ctx.deps.getRenderScale()
   const props = buildCompositionProps({
@@ -517,6 +581,8 @@ const render: StepHandler = async (ctx) => {
     glossary: ctx.library.pronunciations.filter((p) => p.language === ctx.release.language),
     subtitleStyle: channel.subtitleStyleByPlatform[ctx.release.platform],
     mediaUrl: (rel, v) => buildMediaUrl(ctx.deps.mediaBaseUrl, ctx.story.id, rel, v),
+    sharedUrl: (rel, v) => buildMediaUrl(ctx.deps.mediaBaseUrl, CHARACTERS_FOLDER, rel, v),
+    puppetLib: ctx.library,
     fps: platformsConfig.fps,
     sizes: platformsConfig.aspectSizes,
     scale,
@@ -574,7 +640,11 @@ const render: StepHandler = async (ctx) => {
       const a = ctx.library.soundAssets.find((x) => x.id === c.assetId)
       return { id: c.id, kind: c.kind, start: c.start, end: c.end, asset: a ? { name: a.name, license: a.license, licenseConfirmed: a.licenseConfirmed, source: a.source } : null }
     }),
-    motionLevels: ctx.release.scenes.map((s) => ({ scene: s.sceneBankId, level: s.motion.level, hero: s.isHero })),
+    motionLevels: ctx.release.scenes.map((s) => ({ scene: s.sceneBankId, level: s.kind === 'puppet' ? 'puppet' : s.motion.level, hero: s.isHero })),
+    puppets: [...new Set(ctx.release.scenes.flatMap((s) => s.puppet?.actors.map((a) => a.rigId) ?? []))].map((id) => {
+      const rig = ctx.library.puppetRigs.find((r) => r.id === id)
+      return { rig: id, character: rig?.characterId, source: rig?.source ?? 'unknown' }
+    }),
     loudnessLufs: ctx.release.voiceTrack?.mixLufs ?? null,
     folklore: ctx.story.folkloreIds,
     fictionNote: ctx.story.fictionNoteVi

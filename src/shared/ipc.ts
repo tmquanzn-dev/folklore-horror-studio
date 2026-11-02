@@ -242,7 +242,9 @@ export interface IpcInvokeMap {
   'scene:checkConsistency': { args: [storyId: string, sceneIds: string[]]; result: Story }
   'scene:computeParallax': { args: [storyId: string, sceneId: string, aspect: AspectRatio]; result: Story }
   'scene:generateHeroClip': { args: [storyId: string, sceneId: string, aspect: AspectRatio]; result: { jobs: number; cost: number } }
-  'release:update': { args: [storyId: string, releaseId: string, patch: { heroRatio?: number }]; result: Release }
+  'release:update': { args: [storyId: string, releaseId: string, patch: { heroRatio?: number; puppetMaxRatio?: number }]; result: Release }
+  'puppet:createMock': { args: [characterId: string]; result: Library }
+  'puppet:remove': { args: [characterId: string]; result: Library }
   'release:updateScenes': { args: [storyId: string, releaseId: string, scenes: ReleaseScene[]]; result: Release }
   'release:updateSoundCues': { args: [storyId: string, releaseId: string, cues: SoundCue[]]; result: Release }
   'audio:remix': { args: [storyId: string, releaseId: string]; result: Release }
@@ -336,6 +338,8 @@ const CHANNEL_FLAGS = {
   'scene:computeParallax': 1,
   'scene:generateHeroClip': 1,
   'release:update': 1,
+  'puppet:createMock': 1,
+  'puppet:remove': 1,
   'release:updateScenes': 1,
   'release:updateSoundCues': 1,
   'audio:remix': 1,

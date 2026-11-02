@@ -6,6 +6,7 @@ import { Empty, LangBadge, Panel, PhaseBadge, PlatformBadge, ProgressBar } from 
 import { llmEstimateLabel } from '../lib/estimate'
 import { formatUsd, SHOT_LABEL } from '../lib/format'
 import { useMediaUrl } from '../lib/preview'
+import { castConfirm, sceneBankConfirm } from '../lib/impactText'
 import { useApp, useCurrentStory, useMockMode, useReleases } from '../store/appStore'
 import { AddReleaseModal } from './story/AddReleaseModal'
 import { OutlineEditor } from './story/OutlineEditor'
@@ -108,7 +109,7 @@ export function StoryScreen(): JSX.Element {
                 className="btn-secondary text-xs"
                 disabled={!approved}
                 title={approved ? '' : 'Duyệt dàn ý trước'}
-                confirm={storyChars.some((c) => !c.locked) ? 'Đề xuất lại sẽ thay các nhân vật truyện CHƯA khoá. Tiếp tục?' : undefined}
+                confirm={castConfirm(story, storyChars, releases)}
                 onClick={async () => {
                   await window.api.invoke('story:proposeCast', story.id)
                   await useApp.getState().reloadAll()
@@ -198,7 +199,7 @@ export function StoryScreen(): JSX.Element {
               className="btn-secondary text-xs"
               disabled={!approved}
               title={approved ? '' : 'Duyệt dàn ý trước'}
-              confirm={story.sceneBank.length ? 'Đề xuất lại sẽ THAY toàn bộ ngân hàng cảnh hiện có (ảnh đã tạo sẽ phải tạo lại). Tiếp tục?' : undefined}
+              confirm={sceneBankConfirm(story, releases)}
               onClick={async () => {
                 await window.api.invoke('story:proposeSceneBank', story.id)
                 await refresh()

@@ -118,7 +118,10 @@ export class ImageService {
     const max = providersConfig.image.gemini.maxReferenceImages ?? 4
     const refs = pickReferences(scene, ctx.characters, max).map((r) => this.repo.resolveCharacterPath(r.path))
     const model = this.providers.image(providerId).model
-    const cacheKey = `image:${hash({ prompt, refs: await this.refFingerprint(refs), model, aspect, nonce })}`
+    // Khoá cache GỒM storyId + sceneId: 2 cảnh (hoặc 2 Story) trùng prompt vẫn là 2 ảnh riêng.
+    // Thiếu 2 trường này ⇒ hàng đợi gộp 2 cảnh vào 1 job (cảnh thứ 2 không bao giờ có ảnh) và trúng cache
+    // của Story khác ⇒ ảnh bị ghi vào Story cũ.
+    const cacheKey = `image:${hash({ storyId: story.id, sceneId: scene.id, prompt, refs: await this.refFingerprint(refs), model, aspect, nonce })}`
     return { ctx, prompt, negativePrompt, refs, cacheKey }
   }
 
@@ -139,8 +142,9 @@ export class ImageService {
         { kind: 'scene', storyId, sceneId: id, aspect, providerId, autoApply, nonce },
         { providerId, estimatedCost: this.priceOf(providerId), cacheKey: plan.cacheKey, storyId, label: `Cảnh ${n} · ${aspect} · ${scene.description.slice(0, 50)}` }
       )
-      // Trúng cache (đã tạo đúng ảnh này trước đó) ⇒ áp lại ngay, không tốn phí
-      if (job.status === 'done' && job.result) await this.applySceneResult(job.result as ImageJobResult, aspect, autoApply, providerId)
+      // Trúng cache (đã tạo đúng ảnh này trước đó) ⇒ áp lại ngay, không tốn phí – chỉ khi đúng Story + cảnh này
+      const cached = job.status === 'done' ? (job.result as ImageJobResult | null) : null
+      if (cached && cached.storyId === storyId && cached.targetId === id) await this.applySceneResult(cached, aspect, autoApply, providerId)
       jobs.push(job)
     }
     return jobs
@@ -216,8 +220,25 @@ export class ImageService {
       )
       if (signal.aborted) throw new DOMException('Đã huỷ', 'AbortError')
       const failed = results.filter((r) => r.status !== 'done')
-      if (failed.length) throw new Error(`${failed.length} ảnh lỗi: ${failed[0].error ?? ''}. Xem Film Studio → Hàng chờ để thử lại.`)
-      return { created: missing.length, reused: story.sceneBank.length - missing.length }
+      // Kiểm tra lại trên đĩa: job "xong" chưa chắc ảnh đã nằm đúng cảnh ⇒ không báo "Xong" khi còn cảnh thiếu ảnh
+      const after = await this.repo.loadStory(storyId)
+      const still: { n: number; id: string; reason: string }[] = []
+      for (const [i, s] of after.sceneBank.entries()) {
+        const m = s.media['16:9']
+        const ok = m ? await fs.access(this.repo.resolveInStory(storyId, m.path)).then(() => true, () => false) : false
+        if (ok) continue
+        const job = results.find((r) => (r.payload as { sceneId?: string }).sceneId === s.id)
+        still.push({ n: i + 1, id: s.id, reason: job?.status === 'failed' ? (job.error ?? 'lỗi') : job?.status === 'cancelled' ? 'đã huỷ' : job ? 'job xong nhưng ảnh không được gán' : 'không có job' })
+      }
+      if (still.length) {
+        for (const x of still) logger.warn(`Cảnh #${x.n} (${x.id}) chưa có ảnh: ${x.reason}`, storyId)
+        throw new Error(
+          `${still.length}/${after.sceneBank.length} cảnh chưa có ảnh: ${still.slice(0, 8).map((x) => `#${x.n}`).join(', ')}${still.length > 8 ? '…' : ''}` +
+            ` (${still[0].reason}). Cách xử lý: Storyboard → chọn cảnh → R để tạo lại (Film Studio → Hàng chờ xem lỗi), rồi chạy lại bước 6`
+        )
+      }
+      if (failed.length) logger.warn(`${failed.length} job ảnh lỗi nhưng cảnh đã có ảnh từ trước`, storyId)
+      return { created: missing.length - failed.length, reused: story.sceneBank.length - missing.length }
     } finally {
       signal.removeEventListener('abort', onAbort)
     }

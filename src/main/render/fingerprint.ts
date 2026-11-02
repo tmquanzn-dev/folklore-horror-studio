@@ -17,6 +17,8 @@ export function renderFingerprint(story: Story, release: Release, lib: Library):
     subtitleStyle: channel?.subtitleStyleByPlatform[release.platform] ?? null,
     // URL trung tính (không có cổng/token của media server – đổi mỗi lần mở app)
     mediaUrl: (rel, v) => `${rel}#${v ?? ''}`,
+    sharedUrl: (rel, v) => `_characters/${rel}#${v ?? ''}`,
+    puppetLib: lib,
     fps: platformsConfig.fps,
     sizes: platformsConfig.aspectSizes,
     scale: 1,

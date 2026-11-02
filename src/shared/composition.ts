@@ -3,11 +3,19 @@
  * Dùng chung: renderer (Remotion Player xem trước) và main (render MP4) ⇒ xem trước = kết quả render.
  * Cùng một composition render được 16:9 và 9:16 (chỉ đổi width/height + nguồn ảnh).
  */
+import { puppetConfig } from './config'
+import { blinkStarts, mouthAt } from './logic/lipsync'
 import type {
   AspectRatio,
+  EyeState,
   FocusPoint,
+  Library,
   Motion,
+  MouthCue,
+  MouthShape,
   PronunciationEntry,
+  PuppetExpression,
+  Rect,
   Release,
   Story,
   SubtitleCue,
@@ -17,10 +25,42 @@ import type {
 
 export const COMPOSITION_ID = 'FolkloreVideo'
 
+/** GĐ7: một nhân vật rối trong cảnh – mọi thứ đã tính sẵn (tất định) để Player và render vẽ giống hệt nhau */
+export type CompositionPuppetActor = {
+  characterId: string
+  position: 'left' | 'center' | 'right'
+  scale: number
+  flipX: boolean
+  canvas: { width: number; height: number }
+  base: string
+  regions: { eyes: Rect; mouth: Rect }
+  eyes: Record<EyeState, string>
+  mouths: Record<MouthShape, string>
+  idle: { breathAmp: number; swayDeg: number }
+  expression: PuppetExpression
+  /** Khung bắt đầu mỗi lần chớp mắt (tính từ đầu cảnh) */
+  blinks: number[]
+  /** Hình miệng, mốc tính từ ĐẦU CẢNH (giây) */
+  mouthCues: MouthCue[]
+  /** Pha thở/lắc riêng mỗi actor */
+  phase: number
+}
+
+export type CompositionPuppet = {
+  stageSrc: string | null
+  floorY: number
+  lighting: 'lamp' | 'moon' | 'neutral'
+  camera: 'static' | 'pushIn' | 'cutToSpeaker'
+  enter: 'none' | 'fade' | 'slideUp'
+  actors: CompositionPuppetActor[]
+}
+
 export type CompositionScene = {
   id: string
   index: number
   src: string | null
+  /** GĐ7: cảnh rối (nhân vật chớp mắt, khớp môi trên bối cảnh) – null = cảnh minh hoạ thường */
+  puppet?: CompositionPuppet | null
   /** Mức 2: 3 lớp [hậu cảnh, chủ thể, tiền cảnh] */
   layers: string[] | null
   /** Mức 3: clip video AI (phát trước, hết clip thì chuyển sang ảnh tĩnh có Ken Burns) */
@@ -104,6 +144,23 @@ export interface BuildCompositionArgs {
   scale?: number
   parallaxFactors?: [number, number, number]
   window?: CompositionWindow
+  /** GĐ7: rối + bối cảnh (thư viện) và URL file dùng chung (_characters). Thiếu ⇒ cảnh rối hiện như ảnh minh hoạ */
+  puppetLib?: Pick<Library, 'puppetRigs' | 'puppetStages'>
+  sharedUrl?: (relPath: string, version?: string) => string
+}
+
+/** Cảnh rối bị cắt mất phần đầu (cửa sổ teaser) ⇒ dời mốc miệng/chớp mắt tương ứng */
+function shiftPuppet(p: CompositionPuppet | null | undefined, dt: number, fps: number): CompositionPuppet | null | undefined {
+  if (!p || dt <= 0) return p
+  const df = Math.round(dt * fps)
+  return {
+    ...p,
+    actors: p.actors.map((a) => ({
+      ...a,
+      blinks: a.blinks.map((f) => f - df).filter((f) => f >= 0),
+      mouthCues: a.mouthCues.filter((c) => c.end > dt).map((c) => ({ ...c, start: Math.max(0, c.start - dt), end: c.end - dt }))
+    }))
+  }
 }
 
 /** Cắt props theo khoảng [start, end] rồi dời về 0; cảnh cuối kéo dài phủ thẻ kết */
@@ -112,7 +169,7 @@ export function applyWindow(p: CompositionProps, w: CompositionWindow, voiceSrc:
   const total = len + w.endCardSec
   const scenes = p.scenes
     .filter((s) => s.endSec > w.start + 0.05 && s.startSec < w.end - 0.05)
-    .map((s) => ({ ...s, startSec: Math.max(0, s.startSec - w.start), endSec: Math.min(len, s.endSec - w.start) }))
+    .map((s) => ({ ...s, puppet: shiftPuppet(s.puppet, w.start - s.startSec, p.fps), startSec: Math.max(0, s.startSec - w.start), endSec: Math.min(len, s.endSec - w.start) }))
   if (scenes.length) {
     scenes[0] = { ...scenes[0], startSec: 0, transition: { type: 'dipToBlack', durationSec: 0.4 } }
     scenes[scenes.length - 1] = { ...scenes[scenes.length - 1], endSec: total }
@@ -141,6 +198,61 @@ function fallbackMotion(m: Motion): Motion {
 }
 
 const CENTER: FocusPoint = { x: 0.5, y: 0.5 }
+
+/** Dựng dữ liệu cảnh rối: rối + bối cảnh + hình miệng các câu của actor trong cảnh + lịch chớp mắt */
+function buildPuppet(rs: Release['scenes'][number], args: BuildCompositionArgs, aspect: AspectRatio): CompositionPuppet | null {
+  const spec = rs.puppet
+  const lib = args.puppetLib
+  const url = args.sharedUrl
+  if (!spec || !lib || !url) return null
+  const stage = lib.puppetStages.find((s) => s.id === spec.stageId)
+  const fps = args.fps
+  const frames = Math.max(1, Math.round((rs.end - rs.start) * fps))
+  const actors: CompositionPuppetActor[] = []
+  spec.actors.forEach((a, k) => {
+    const rig = lib.puppetRigs.find((r) => r.id === a.rigId)
+    if (!rig) return
+    const v = rig.createdAt
+    const lines = args.release.script.lines.filter((l) => l.speakerId === a.characterId && l.start != null && l.end != null && (l.end as number) > rs.start && (l.start as number) < rs.end)
+    const mouthCues = lines
+      .flatMap((l) => l.mouthCues ?? [])
+      .filter((c) => c.end > rs.start && c.start < rs.end)
+      .map((c) => ({ shape: c.shape, start: Math.max(0, Math.round((c.start - rs.start) * 1000) / 1000), end: Math.round((Math.min(c.end, rs.end) - rs.start) * 1000) / 1000 }))
+      .sort((x, y) => x.start - y.start)
+    // Biểu cảm theo delivery của câu đầu tiên actor nói trong cảnh
+    const tag = lines[0]?.delivery.tags.find((t) => puppetConfig.deliveryExpression[t])
+    const exprName = tag ? puppetConfig.deliveryExpression[tag] : a.defaultExpression
+    const expression = rig.expressions[exprName] ?? puppetConfig.defaultExpressions[exprName] ?? { eyes: 'open' }
+    const blinks = blinkStarts(`${rig.id}:${rs.id}`, frames, fps, rig.idle.blinkMinSec, rig.idle.blinkMaxSec, expression.blinkRate ?? 1, (f) => mouthAt(mouthCues, f / fps) === 'D')
+    const mouths = {} as Record<MouthShape, string>
+    for (const [m, p] of Object.entries(rig.mouthSet)) mouths[m as MouthShape] = url(p, v)
+    actors.push({
+      characterId: a.characterId,
+      position: a.position,
+      scale: a.scale,
+      flipX: a.flipX,
+      canvas: rig.canvas,
+      base: url(rig.basePath, v),
+      regions: rig.regions,
+      eyes: { open: url(rig.eyeSet.open, v), half: url(rig.eyeSet.half, v), closed: url(rig.eyeSet.closed, v), wide: url(rig.eyeSet.wide ?? rig.eyeSet.open, v) },
+      mouths,
+      idle: { breathAmp: rig.idle.breathAmp, swayDeg: rig.idle.swayDeg },
+      expression,
+      blinks,
+      mouthCues,
+      phase: (k * 1.7 + rs.start) % 6.28
+    })
+  })
+  if (!actors.length) return null
+  return {
+    stageSrc: stage ? url(stage.backgroundPath[aspect], stage.id) : null,
+    floorY: stage?.floorY ?? 0.82,
+    lighting: stage?.lighting ?? 'lamp',
+    camera: spec.camera,
+    enter: spec.enter,
+    actors
+  }
+}
 
 export function buildCompositionProps(args: BuildCompositionArgs): CompositionProps {
   const { story, release } = args
@@ -172,9 +284,11 @@ export function buildCompositionProps(args: BuildCompositionArgs): CompositionPr
       if (c) clip = { src: args.mediaUrl(c.path, c.createdAt), durationSec: c.durationSec ?? 5 }
       else motion = fallbackMotion(motion)
     }
+    const puppet = rs.kind === 'puppet' ? buildPuppet(rs, args, aspect) : null
     return {
       id: rs.id,
       index,
+      puppet,
       src: media ? args.mediaUrl(media.path, media.createdAt) : null,
       layers,
       clip,
